@@ -129,6 +129,7 @@ class PriceChecker {
       }
 
       let added = 0, updated = 0
+      const matchedProductIds = new Set()
       for (const parsed of result.products) {
         const key = parsed.sourceKey ? `source:${parsed.sourceKey}` : `name:${parsed.name.toLowerCase()}`
         // Match a product-specific URL too, so a better title from structured
@@ -136,6 +137,7 @@ class PriceChecker {
         const urlKey = parsed.url && productUrlKey(parsed.url)
         const existing = existingByName.get(key) || (urlKey && parsedUrlCounts.get(urlKey) === 1 && existingByUrl.get(urlKey))
         if (existing) {
+          matchedProductIds.add(existing.id)
           const oldPrice = existing.price
           if (oldPrice !== parsed.price && !existing.manualFields?.price) {
             this.storeService.recordPrice(storeId, existing.id, parsed.price, parsed.currency, { save: false })
@@ -170,9 +172,22 @@ class PriceChecker {
             imageUrl: parsed.imageUrl,
             sourceKey: parsed.sourceKey || null
           }, { save: false })
+          matchedProductIds.add(product.id)
           this.storeService.recordPrice(storeId, product.id, parsed.price, parsed.currency, { save: false })
           added++
         }
+      }
+
+      // Автоочистка: предложения, которых больше нет на странице, удаляем —
+      // но только если парсинг вернул достаточно товаров (защита от частичной
+      // загрузки JS-страницы) и не трогаем поля, закреплённые вручную.
+      const isLocked = product => Boolean(product.manualFields?.name || product.manualFields?.url || product.manualFields?.price)
+      const prunable = store.products.filter(product => !isLocked(product) && !matchedProductIds.has(product.id))
+      const autoCount = store.products.filter(product => !isLocked(product)).length
+      const parsedCount = result.products.length
+      let removed = 0
+      if (parsedCount > 0 && parsedCount >= Math.max(2, Math.ceil(autoCount / 2))) {
+        removed = this.storeService.removeProducts(storeId, prunable.map(product => product.id))
       }
 
       this.storeService.update(storeId, {
@@ -190,10 +205,11 @@ class PriceChecker {
         productsFound: result.products.length,
         added,
         updated,
+        removed,
         checkedAt: now
       })
 
-      return { ok: true, title: result.title, productsFound: result.products.length, added, updated }
+      return { ok: true, title: result.title, productsFound: result.products.length, added, updated, removed }
     } catch (err) {
       this.status.totalErrors++
       const message = err.response
@@ -209,8 +225,8 @@ class PriceChecker {
     }
   }
 
-  async checkAll() {
-    const stores = this.storeService.getAll().filter(s => s.enabled)
+  async checkAll({ includeDisabled = false } = {}) {
+    const stores = this.storeService.getAll().filter(s => includeDisabled || s.enabled)
     return Promise.all(stores.map(async store => ({ storeId: store.id, ...(await this.checkStore(store.id)) })))
   }
 

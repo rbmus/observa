@@ -86,6 +86,7 @@ export interface MonitorEvent {
   productsFound?: number
   added?: number
   updated?: number
+  removed?: number
   checkedAt?: string
   error?: string
 }
@@ -157,6 +158,12 @@ export interface PriceMatrixRow {
   differencePercent: number | null
 }
 
+export interface SimilarProductsResult {
+  productName: string
+  currency: string
+  offers: MarketOffer[]
+}
+
 export interface AnalyticsSummary {
   storesCount: number
   competitorStoresCount: number
@@ -190,6 +197,7 @@ export interface ParsedPage {
 declare global {
   interface Window {
     observa: {
+      platform: string
       settingsGet: () => Promise<AppSettings>
       settingsUpdate: (patch: Partial<AppSettings>) => Promise<AppSettings>
       storesList: () => Promise<Store[]>
@@ -199,6 +207,7 @@ declare global {
       storesRemove: (id: string) => Promise<boolean>
       storesAddProduct: (storeId: string, product: Partial<Product>) => Promise<Product | null>
       storesRemoveProduct: (storeId: string, productId: string) => Promise<boolean>
+      storesRemoveProducts: (storeId: string, productIds: string[]) => Promise<number>
       storesUpdateProduct: (storeId: string, productId: string, patch: Partial<Product>) => Promise<Product | null>
       sourcesExportSetup: () => Promise<{ saved: boolean; count: number }>
       sourcesReadSetup: () => Promise<SourceSetupPreview | null>
@@ -209,7 +218,7 @@ declare global {
       monitorStart: () => Promise<MonitorStatus>
       monitorStop: () => Promise<MonitorStatus>
       monitorCheckNow: (storeId: string) => Promise<{ ok: boolean; error?: string }>
-      monitorCheckAll: () => Promise<{ storeId: string; ok: boolean; error?: string }[]>
+      monitorCheckAll: () => Promise<{ storeId: string; ok: boolean; error?: string; added?: number; updated?: number; removed?: number; productsFound?: number }[]>
       monitorHistory: (storeId: string, productId: string) => Promise<PricePoint[]>
       monitorProducts: (storeId: string) => Promise<Product[]>
       monitorFetchPage: (url: string, sourceType?: Store['sourceType']) => Promise<ParsedPage>
@@ -221,6 +230,7 @@ declare global {
       winToggleMaximize: () => Promise<void>
       winClose: () => Promise<void>
       analyticsSummary: () => Promise<AnalyticsSummary>
+      analyticsSimilarProducts: (storeId: string, productId: string) => Promise<SimilarProductsResult | null>
       analyticsPriceDynamics: (storeId: string, productId: string) => Promise<PricePoint[]>
       analyticsSaveMatch: (refs: { storeId: string; productId: string }[], label: string) => Promise<void>
       analyticsSeparateMatch: (refs: { storeId: string; productId: string }[]) => Promise<void>

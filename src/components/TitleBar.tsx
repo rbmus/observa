@@ -1,12 +1,16 @@
 import Logo from './Logo'
 
 export default function TitleBar() {
+  const platform = window.observa?.platform || ''
+  if (platform === 'darwin') return <div className="window-drag-strip" aria-hidden="true" />
+  const showControls = platform !== 'win32'
   return (
     <div className="titlebar">
       <div className="titlebar-brand">
         <Logo size={16} />
         <span>OBSERVA</span>
       </div>
+      {showControls && (
       <div className="titlebar-controls">
         <button
           className="titlebar-btn"
@@ -39,6 +43,7 @@ export default function TitleBar() {
           </svg>
         </button>
       </div>
+      )}
     </div>
   )
 }

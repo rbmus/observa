@@ -190,6 +190,23 @@ class StoreService {
     return true
   }
 
+  removeProducts(storeId, productIds) {
+    const store = this.getById(storeId)
+    if (!store) return 0
+    const ids = new Set(productIds)
+    const before = store.products.length
+    store.products = store.products.filter(p => !ids.has(p.id))
+    for (const productId of ids) {
+      delete this.data.priceHistory[`${storeId}:${productId}`]
+      const removedRef = `${storeId}|${productId}`
+      this.data.manualMatches = this.data.manualMatches.map(group => ({ ...group, refs: group.refs.filter(ref => `${ref.storeId}|${ref.productId}` !== removedRef) })).filter(group => group.refs.length > 1)
+      this.data.separatedPairs = this.data.separatedPairs.filter(pair => !pair.includes(removedRef))
+    }
+    const removed = before - store.products.length
+    if (removed) this._save()
+    return removed
+  }
+
   updateProduct(storeId, productId, patch) {
     const store = this.getById(storeId)
     const product = store?.products.find(item => item.id === productId)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Store, Product, PricePoint, ParsedPage } from '../types'
+import type { Store, Product, PricePoint, ParsedPage, SimilarProductsResult } from '../types'
 import { formatPrice, formatPercent, formatDate, timeAgo } from '../utils/format'
 import PriceChart from '../components/PriceChart'
 import { Icon } from '../components/icons'
@@ -32,6 +32,8 @@ export default function StoreDetail({ storeId, onBack }: Props) {
   const [notice, setNotice] = useState<{ title: string; message: string } | null>(null)
   const [pendingProductRemoval, setPendingProductRemoval] = useState<Product | null>(null)
   const [removingProduct, setRemovingProduct] = useState(false)
+  const [similar, setSimilar] = useState<{ product: Product; result: SimilarProductsResult | null } | null>(null)
+  const [similarLoading, setSimilarLoading] = useState(false)
 
   const refresh = () => {
     window.observa.storesGet(storeId).then(s => {
@@ -59,6 +61,22 @@ export default function StoreDetail({ storeId, onBack }: Props) {
     }
   }, [selectedProduct])
 
+  const openProduct = async (product: Product) => {
+    setSelectedProduct(product)
+    setSimilar({ product, result: null })
+    setSimilarLoading(true)
+    try {
+      const result = await window.observa.analyticsSimilarProducts(storeId, product.id)
+      setSimilar(current => current && current.product.id === product.id ? { product, result } : current)
+    } catch {
+      setSimilar(current => current && current.product.id === product.id
+        ? { product, result: { productName: product.name, currency: product.currency || 'RUB', offers: [] } }
+        : current)
+    } finally {
+      setSimilarLoading(false)
+    }
+  }
+
   const checkNow = async () => {
     setChecking(true)
     await window.observa.monitorCheckNow(storeId)
@@ -82,13 +100,17 @@ export default function StoreDetail({ storeId, onBack }: Props) {
 
   const importScanned = async () => {
     if (!scanResult) return
-    for (const p of scanResult.products.slice(0, 100)) {
+    const removable = products.filter(p => !p.manualFields?.name && !p.manualFields?.price && !p.manualFields?.url)
+    if (removable.length) await window.observa.storesRemoveProducts(storeId, removable.map(p => p.id))
+    const fresh = scanResult.products.slice(0, 500)
+    for (const p of fresh) {
       await window.observa.storesAddProduct(storeId, {
         name: p.name, url: p.url, price: p.price, currency: p.currency, imageUrl: p.imageUrl, sourceKey: p.sourceKey
       })
     }
     setScanResult(null)
     refresh()
+    setNotice({ title: 'Импорт завершён', message: `Список обновлён: ${fresh.length} товаров.` })
   }
 
   const addManualProduct = async () => {
@@ -163,9 +185,15 @@ export default function StoreDetail({ storeId, onBack }: Props) {
     } finally { setSavingSettings(false) }
   }
 
-  const filtered = products.filter(p =>
-    !search || p.name.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = products
+    .filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()))
+    .slice()
+    .sort((a, b) => {
+      if (a.price == null && b.price == null) return a.name.localeCompare(b.name, 'ru')
+      if (a.price == null) return 1
+      if (b.price == null) return -1
+      return a.price - b.price || a.name.localeCompare(b.name, 'ru')
+    })
 
   const prices = products.map(p => p.price).filter((p): p is number => p != null)
   const minPrice = prices.length ? Math.min(...prices) : null
@@ -248,7 +276,7 @@ export default function StoreDetail({ storeId, onBack }: Props) {
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn primary small" onClick={importScanned}>
-                Импортировать найденное (до 100)
+                Импортировать найденное ({Math.min(scanResult.products.length, 500)})
               </button>
               <button className="btn small" onClick={() => setScanResult(null)}>Закрыть</button>
             </div>
@@ -269,31 +297,7 @@ export default function StoreDetail({ storeId, onBack }: Props) {
         </div>
       )}
 
-      {/* Панель товара с графиком */}
-      {selectedProduct && (
-        <div className="chart-container" style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{selectedProduct.name}</div>
-              <div className="product-price" style={{ marginTop: 6 }}>{formatPrice(selectedProduct.price, selectedProduct.currency)}</div>
-            </div>
-            <button className="btn small" onClick={() => setSelectedProduct(null)}><Icon name="close" size={12} /> Закрыть</button>
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <PriceChart data={history} />
-          </div>
-          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
-            Точек истории: {history.length}
-            {history.length >= 2 && (
-              <> · изменение:{' '}
-                <span className={history[history.length - 1].price > history[0].price ? 'price-up' : 'price-down'}>
-                  {formatPercent(((history[history.length - 1].price - history[0].price) / history[0].price) * 100)}
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Панель товара с графиком — открывается модалкой с похожими товарами */}
 
       {/* Поиск и переключатель вида */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
@@ -321,7 +325,7 @@ export default function StoreDetail({ storeId, onBack }: Props) {
               className="product-card"
               key={p.id}
               style={{ cursor: 'pointer' }}
-              onClick={() => setSelectedProduct(p)}
+              onClick={() => openProduct(p)}
             >
               <div className="product-img">
                 <ProductImage imageUrl={p.imageUrl} sourceUrl={p.sourceUrl || p.url || store?.url} className="product-image" />
@@ -356,7 +360,7 @@ export default function StoreDetail({ storeId, onBack }: Props) {
             </thead>
             <tbody>
               {filtered.map(p => (
-                <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedProduct(p)}>
+                <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => openProduct(p)}>
                   <td>
                     <div style={{ fontWeight: 500, maxWidth: 400 }}>{p.name}</div>
                     {p.url && (
@@ -387,6 +391,75 @@ export default function StoreDetail({ storeId, onBack }: Props) {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Модалка похожих товаров */}
+      {similar && (
+        <div className="modal-overlay" onClick={() => setSimilar(null)}>
+          <div className="modal similar-modal" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div>
+                <h3 style={{ margin: 0 }}>{similar.product.name}</h3>
+                <div className="product-price" style={{ marginTop: 6 }}>{formatPrice(similar.product.price, similar.product.currency)}</div>
+              </div>
+              <button className="btn small" onClick={() => setSimilar(null)}><Icon name="close" size={12} /> Закрыть</button>
+            </div>
+
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+              {similarLoading
+                ? 'Ищем похожие предложения…'
+                : similar.result
+                  ? `Найдено предложений: ${similar.result.offers.length}${similar.result.offers.length ? ' — цены по всем источникам' : ''}`
+                  : ''}
+            </div>
+
+            {similarLoading ? (
+              <div className="page-loader"><Loader size={28} /></div>
+            ) : similar.result && similar.result.offers.length > 0 ? (
+              <div className="similar-grid">
+                {similar.result.offers.map(offer => (
+                  <div className={`product-card similar-card ${offer.storeId === storeId ? 'similar-card-own' : ''}`} key={`${offer.storeId}:${offer.productId}`}>
+                    <div className="product-img">
+                      <ProductImage imageUrl={offer.imageUrl} sourceUrl={offer.url || store?.url} className="product-image" />
+                    </div>
+                    <div className="product-body">
+                      <div className="product-name" title={offer.productName}>{offer.productName}</div>
+                      <div className="similar-store">{offer.role === 'own' ? '★ ' : ''}{offer.storeName}</div>
+                      <div className="product-price">{formatPrice(offer.price, offer.currency)}</div>
+                      {offer.url && (
+                        <a
+                          href="#"
+                          className="similar-link"
+                          onClick={e => { e.preventDefault(); e.stopPropagation(); window.observa.openExternal(offer.url!) }}
+                        >
+                          Открыть <Icon name="external" size={11} />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : !similarLoading && (
+              <div className="empty-state" style={{ padding: '24px 0' }}>Похожих товаров с ценами не найдено</div>
+            )}
+
+            {history.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <PriceChart data={history} />
+                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  Точек истории: {history.length}
+                  {history.length >= 2 && (
+                    <> · изменение:{' '}
+                      <span className={history[history.length - 1].price > history[0].price ? 'price-up' : 'price-down'}>
+                        {formatPercent(((history[history.length - 1].price - history[0].price) / history[0].price) * 100)}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

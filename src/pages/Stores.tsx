@@ -135,8 +135,19 @@ export default function Stores({ onOpenStore }: Props) {
 
   const checkAll = async () => {
     setCheckingAll(true)
-    try { await window.observa.monitorCheckAll(); refresh() }
-    finally { setCheckingAll(false) }
+    setSetupError('')
+    try {
+      const results = await window.observa.monitorCheckAll()
+      const okCount = results.filter(r => r.ok).length
+      const added = results.reduce((n, r) => n + (r.added || 0), 0)
+      const removed = results.reduce((n, r) => n + (r.removed || 0), 0)
+      setSetupMessage(`Проверено источников: ${okCount} из ${results.length}. Добавлено позиций: ${added}, удалено устаревших: ${removed}.`)
+      refresh()
+    } catch (e: any) {
+      setSetupError(e.message || 'Не удалось проверить источники')
+    } finally {
+      setCheckingAll(false)
+    }
   }
 
   const exportSetup = async () => {

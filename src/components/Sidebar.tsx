@@ -3,6 +3,7 @@ import type { Page } from '../App'
 import type { AnalyticsSummary, MarketOffer, PriceOffer } from '../types'
 import { formatPrice, formatPercent, timeAgo } from '../utils/format'
 import { Icon } from './icons'
+import Logo from './Logo'
 
 interface Props { page: Page; onNavigate: (p: Page) => void }
 
@@ -41,6 +42,7 @@ export default function Sidebar({ page, onNavigate }: Props) {
     }
   }, [])
 
+  const isMac = window.observa?.platform === 'darwin'
   const matrix = summary?.priceMatrix || []
   const matchedRows = matrix.filter(row => row.ownOffers.length > 0)
     .sort((left, right) => Math.abs(right.differencePercent || 0) - Math.abs(left.differencePercent || 0))
@@ -52,6 +54,12 @@ export default function Sidebar({ page, onNavigate }: Props) {
 
   return (
     <aside className="sidebar">
+      {isMac && (
+        <div className="sidebar-brand">
+          <Logo size={22} />
+          <span>OBSERVA</span>
+        </div>
+      )}
       <nav className="nav">
         {GROUPS.map(group => <div className="nav-section" key={group.label}>
           <div className="nav-group-label">{group.label}</div>

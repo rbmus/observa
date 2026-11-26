@@ -5,7 +5,7 @@ const net = require('net')
 const ExcelJS = require('exceljs')
 const { StoreService } = require(path.join(__dirname, 'services/storeService.cjs'))
 const { PriceChecker } = require(path.join(__dirname, 'services/priceChecker.cjs'))
-const { Analyzer } = require(path.join(__dirname, 'services/analyzer.cjs'))
+const { Analyzer, cleanComparableName, normalizeMatchName, similarity } = require(path.join(__dirname, 'services/analyzer.cjs'))
 
 let mainWindow = null
 let storeService = null
@@ -228,6 +228,7 @@ function createWindow() {
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, 'icon-app.png')
     : path.join(__dirname, '../icon-app.png')
+  const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -236,7 +237,8 @@ function createWindow() {
     backgroundColor: '#131313',
     icon: iconPath,
     show: false,
-    frame: false,
+    frame: !isMac,
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
     title: 'OBSERVA',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -337,6 +339,7 @@ ipcMain.handle('stores:update', (_, id, patch) => { const result = storeService.
 ipcMain.handle('stores:remove', (_, id) => { const result = storeService.remove(id); invalidateAnalytics(); return result })
 ipcMain.handle('stores:addProduct', (_, storeId, product) => { const result = storeService.addProduct(storeId, product); invalidateAnalytics(); return result })
 ipcMain.handle('stores:removeProduct', (_, storeId, productId) => { const result = storeService.removeProduct(storeId, productId); invalidateAnalytics(); return result })
+ipcMain.handle('stores:removeProducts', (_, storeId, productIds) => { const result = storeService.removeProducts(storeId, Array.isArray(productIds) ? productIds : []); invalidateAnalytics(); return result })
 ipcMain.handle('stores:updateProduct', (_, storeId, productId, patch) => {
   if (!patch || typeof patch !== 'object') throw new Error('Некорректные данные товара')
   const normalized = {}
@@ -434,7 +437,7 @@ ipcMain.handle('monitor:setStartAtLogin', (_, enabled) => {
 ipcMain.handle('monitor:start', () => { priceChecker.start(); return priceChecker.getStatus() })
 ipcMain.handle('monitor:stop', () => { priceChecker.stop(); return priceChecker.getStatus() })
 ipcMain.handle('monitor:checkNow', (_, storeId) => priceChecker.checkStore(storeId))
-ipcMain.handle('monitor:checkAll', () => priceChecker.checkAll())
+ipcMain.handle('monitor:checkAll', () => priceChecker.checkAll({ includeDisabled: true }))
 ipcMain.handle('monitor:history', (_, storeId, productId) => storeService.getHistory(storeId, productId))
 ipcMain.handle('monitor:products', (_, storeId) => storeService.getProducts(storeId))
 ipcMain.handle('monitor:fetchPage', async (_, url, sourceType = 'website') => {
@@ -465,6 +468,71 @@ ipcMain.handle('settings:update', (_, patch) => {
 
 // ---------- IPC: аналитика ----------
 ipcMain.handle('analytics:summary', () => getAnalyticsSummary())
+ipcMain.handle('analytics:similarProducts', (_, storeId, productId) => {
+  const stores = storeService.getAll()
+  const store = stores.find(s => s.id === storeId)
+  const product = store?.products.find(p => p.id === productId)
+  if (!product) return null
+  const summary = getAnalyticsSummary()
+  const ref = `${storeId}|${productId}`
+  const imageByRef = new Map(summary.allOffers.map(offer => [`${offer.storeId}|${offer.productId}`, offer.imageUrl]))
+  const toOffer = offer => ({
+    productId: offer.productId,
+    productName: offer.productName,
+    storeId: offer.storeId,
+    storeName: offer.storeName,
+    storeKey: offer.storeKey,
+    role: offer.role,
+    sourceType: offer.sourceType,
+    price: offer.price,
+    currency: offer.currency,
+    lastChecked: offer.lastChecked || null,
+    url: offer.url || null,
+    imageUrl: offer.imageUrl || imageByRef.get(`${offer.storeId}|${offer.productId}`) || null,
+    category: offer.category || 'general'
+  })
+  // Keyword matching across every known offer: ignore plan durations/numbers —
+  // "Telegram Premium" and "Telegram Premium 3 месяца" are the same product.
+  const target = normalizeMatchName(cleanComparableName(product.name))
+  const coreTokens = match => match.tokens.filter(token => !token.startsWith('duration') && !/^\d+$/.test(token))
+  const keywordScore = (a, b) => {
+    const left = coreTokens(a)
+    const right = coreTokens(b)
+    if (!left.length || !right.length) return 0
+    const intersection = left.filter(token => right.includes(token)).length
+    return intersection ? (2 * intersection) / (left.length + right.length) : 0
+  }
+  const keywordOffers = target.key
+    ? summary.allOffers
+        .filter(offer => !(offer.storeId === storeId && offer.productId === productId) && offer.price != null)
+        .map(offer => ({ offer, match: normalizeMatchName(cleanComparableName(offer.productName)) }))
+        .filter(({ match }) => match.key && keywordScore(target, match) >= 0.5)
+        .map(({ offer }) => toOffer(offer))
+    : []
+
+  const byPrice = (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)
+  const row = summary.priceMatrix.find(r => r.offers.some(offer => `${offer.storeId}|${offer.productId}` === ref))
+  if (row) {
+    // Union of the strict comparison group and keyword matches from other groups.
+    const selfOffer = {
+      productId: product.id, productName: product.name, storeId, storeName: store.name,
+      storeKey: '', role: store.role === 'own' ? 'own' : 'competitor',
+      sourceType: store.sourceType === 'telegram' ? 'telegram' : 'website',
+      price: product.price ?? null, currency: product.currency || 'RUB',
+      lastChecked: product.lastChecked || null, url: product.url || store.url,
+      imageUrl: product.imageUrl || null, category: product.category || 'general'
+    }
+    const merged = new Map()
+    for (const offer of [...row.offers.map(toOffer), ...keywordOffers, toOffer(selfOffer)]) {
+      merged.set(`${offer.storeId}|${offer.productId}`, offer)
+    }
+    return { productName: row.productName, currency: row.currency, offers: [...merged.values()].sort(byPrice) }
+  }
+
+  // The product never reached the comparison matrix (no price or singleton
+  // competitor) — keyword matches are the answer.
+  return { productName: product.name, currency: product.currency || 'RUB', offers: keywordOffers.sort(byPrice) }
+})
 ipcMain.handle('analytics:priceDynamics', (_, storeId, productId) =>
   storeService.getHistory(storeId, productId))
 ipcMain.handle('analytics:saveMatch', (_, refs, label) => {

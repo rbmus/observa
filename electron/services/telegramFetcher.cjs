@@ -80,19 +80,32 @@ async function fetchTelegramChannel(value) {
     const lineFor = raw => normalizedLines.find(line => line.includes(raw)) || normalizedLines[0]
     const permalink = `https://t.me/${postId}`
     const imageUrl = extractPhoto($, $post)
-    const baseName = cleanTelegramName(normalizedLines.find(line => {
+    // The first usable line is usually the product headline; later lines are
+    // description, contacts and promo boilerplate.
+    const titleCandidates = normalizedLines.filter(line => {
       pricePattern.lastIndex = 0
-      return !pricePattern.test(line) && line.length > 3
-    }) || title)
+      if (pricePattern.test(line)) return false
+      if (/^https?:\/\/|www\.|t\.me\/|@[a-z0-9_]{4,}/i.test(line)) return false
+      return line.length >= 3
+    })
     pricePattern.lastIndex = 0
 
+    // Prefer the line that actually carries the price — it usually names the
+    // offer. Fall back to the post headline when the price sits alone.
+    const headline = titleCandidates.find(line => line.length <= 120) || titleCandidates[0] || ''
     matches.forEach((item, index) => {
       const sourceLine = lineFor(item.raw)
       const cleanLine = cleanTelegramName(sourceLine.replace(pricePattern, '').replace(/[\s:—–-]+/g, ' '))
       pricePattern.lastIndex = 0
-      const name = cleanTelegramName(matches.length > 1 && cleanLine.length > 3
-        ? `${baseName} · ${cleanLine}`
-        : baseName)
+      let name
+      if (cleanLine.length >= 3 && cleanLine.length <= 140) {
+        name = headline && headline !== cleanLine && headline.length <= 80 && !cleanLine.includes(headline)
+          ? `${headline} · ${cleanLine}`
+          : cleanLine
+      } else {
+        name = cleanTelegramName(headline || normalizedLines.find(line => line.length > 3) || title)
+      }
+      name = name.slice(0, 140)
       if (name.length < 2) return
       const key = `${postId}:${index}`
       if (seen.has(key)) return

@@ -1,3 +1,5 @@
+const { getDomain } = require('tldts')
+
 const NUMBER_WORDS = {
   one: '1', first: '1', один: '1', одна: '1', одного: '1',
   two: '2', two_months: '2', два: '2', две: '2', двух: '2',
@@ -81,7 +83,9 @@ function storeIdentity(store) {
     const parsed = new URL(store.url)
     const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
     if (store.sourceType === 'telegram') return `${host}/${parsed.pathname.split('/').filter(Boolean).filter(part => part !== 's').join('/')}`
-    return host
+    // Subdomains belong to the same seller (installios.ru / orders.installios.ru),
+    // so comparisons treat them as one store instead of fake competitors.
+    return getDomain(host) || host
   } catch { return String(store.name || store.id).toLocaleLowerCase('ru').trim() }
 }
 
@@ -276,7 +280,9 @@ class Analyzer {
       }
     })
 
-    const priceMatrix = groups.filter(group => new Set(group.offers.map(offer => offer.storeKey)).size > 1).map(group => {
+    // Groups need offers from 2+ stores to count as a comparison — except own
+    // offers, which always stay visible so nothing from our catalog is hidden.
+    const priceMatrix = groups.filter(group => new Set(group.offers.map(offer => offer.storeKey)).size > 1 || group.offers.some(offer => offer.role === 'own')).map(group => {
       const offers = group.offers.map(({ matchName, ...offer }) => offer)
       const ownOffers = offers.filter(offer => offer.role === 'own').sort((a, b) => a.price - b.price)
       const competitorOffers = offers.filter(offer => offer.role === 'competitor')
@@ -340,4 +346,4 @@ class Analyzer {
   }
 }
 
-module.exports = { Analyzer }
+module.exports = { Analyzer, cleanComparableName, normalizeMatchName, similarity }

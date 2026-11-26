@@ -16,14 +16,15 @@
     "cheerio": "^1.0.0",
     "exceljs": "^4.4.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "tldts": "^7.6.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",
     "concurrently": "^9.0.1",
-    "electron": "^33.2.0",
+    "electron": "^45.4.1",
     "electron-builder": "^26.18.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.9",
@@ -32,6 +33,9 @@
   "build": {
     "appId": "com.observa.app",
     "productName": "OBSERVA",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**/*",
       "electron/**/*"
@@ -42,6 +46,9 @@
         "to": "icon-app.png"
       }
     ],
+    "mac": {
+      "icon": "icon-app.icns"
+    },
     "win": {
       "icon": "icon-app.png"
     }

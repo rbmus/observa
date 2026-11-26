@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('observa', {
+  platform: process.platform,
   settingsGet: () => ipcRenderer.invoke('settings:get'),
   settingsUpdate: (patch) => ipcRenderer.invoke('settings:update', patch),
   // stores
@@ -11,6 +12,7 @@ contextBridge.exposeInMainWorld('observa', {
   storesRemove: (id) => ipcRenderer.invoke('stores:remove', id),
   storesAddProduct: (storeId, product) => ipcRenderer.invoke('stores:addProduct', storeId, product),
   storesRemoveProduct: (storeId, productId) => ipcRenderer.invoke('stores:removeProduct', storeId, productId),
+  storesRemoveProducts: (storeId, productIds) => ipcRenderer.invoke('stores:removeProducts', storeId, productIds),
   storesUpdateProduct: (storeId, productId, patch) => ipcRenderer.invoke('stores:updateProduct', storeId, productId, patch),
   sourcesExportSetup: () => ipcRenderer.invoke('sources:exportSetup'),
   sourcesReadSetup: () => ipcRenderer.invoke('sources:readSetup'),
@@ -51,6 +53,7 @@ contextBridge.exposeInMainWorld('observa', {
 
   // analytics
   analyticsSummary: () => ipcRenderer.invoke('analytics:summary'),
+  analyticsSimilarProducts: (storeId, productId) => ipcRenderer.invoke('analytics:similarProducts', storeId, productId),
   analyticsPriceDynamics: (storeId, productId) => ipcRenderer.invoke('analytics:priceDynamics', storeId, productId),
   analyticsSaveMatch: (refs, label) => ipcRenderer.invoke('analytics:saveMatch', refs, label),
   analyticsSeparateMatch: (refs) => ipcRenderer.invoke('analytics:separateMatch', refs),
