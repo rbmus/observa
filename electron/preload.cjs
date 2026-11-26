@@ -1,0 +1,60 @@
+const { contextBridge, ipcRenderer } = require('electron')
+
+contextBridge.exposeInMainWorld('observa', {
+  settingsGet: () => ipcRenderer.invoke('settings:get'),
+  settingsUpdate: (patch) => ipcRenderer.invoke('settings:update', patch),
+  // stores
+  storesList: () => ipcRenderer.invoke('stores:list'),
+  storesGet: (id) => ipcRenderer.invoke('stores:get', id),
+  storesAdd: (store) => ipcRenderer.invoke('stores:add', store),
+  storesUpdate: (id, patch) => ipcRenderer.invoke('stores:update', id, patch),
+  storesRemove: (id) => ipcRenderer.invoke('stores:remove', id),
+  storesAddProduct: (storeId, product) => ipcRenderer.invoke('stores:addProduct', storeId, product),
+  storesRemoveProduct: (storeId, productId) => ipcRenderer.invoke('stores:removeProduct', storeId, productId),
+  storesUpdateProduct: (storeId, productId, patch) => ipcRenderer.invoke('stores:updateProduct', storeId, productId, patch),
+  sourcesExportSetup: () => ipcRenderer.invoke('sources:exportSetup'),
+  sourcesReadSetup: () => ipcRenderer.invoke('sources:readSetup'),
+  sourcesApplySetup: (sources) => ipcRenderer.invoke('sources:applySetup', sources),
+
+  // monitor
+  monitorStatus: () => ipcRenderer.invoke('monitor:status'),
+  monitorStartAtLogin: () => ipcRenderer.invoke('monitor:startAtLogin'),
+  monitorSetStartAtLogin: (enabled) => ipcRenderer.invoke('monitor:setStartAtLogin', enabled),
+  monitorStart: () => ipcRenderer.invoke('monitor:start'),
+  monitorStop: () => ipcRenderer.invoke('monitor:stop'),
+  monitorCheckNow: (storeId) => ipcRenderer.invoke('monitor:checkNow', storeId),
+  monitorCheckAll: () => ipcRenderer.invoke('monitor:checkAll'),
+  monitorHistory: (storeId, productId) => ipcRenderer.invoke('monitor:history', storeId, productId),
+  monitorProducts: (storeId) => ipcRenderer.invoke('monitor:products', storeId),
+  monitorFetchPage: (url, sourceType) => ipcRenderer.invoke('monitor:fetchPage', url, sourceType),
+  openExternal: (url) => ipcRenderer.invoke('monitor:openExternal', url),
+  onMonitorEvent: (cb) => {
+    const listener = (_, data) => cb(data)
+    ipcRenderer.on('monitor:event', listener)
+    return () => ipcRenderer.removeListener('monitor:event', listener)
+  },
+  onAppNavigate: (cb) => {
+    const listener = (_, page) => cb(page)
+    ipcRenderer.on('app:navigate', listener)
+    return () => ipcRenderer.removeListener('app:navigate', listener)
+  },
+  onDataChanged: (cb) => {
+    const listener = () => cb()
+    ipcRenderer.on('app:data-changed', listener)
+    return () => ipcRenderer.removeListener('app:data-changed', listener)
+  },
+
+  // window
+  winMinimize: () => ipcRenderer.invoke('window:minimize'),
+  winToggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
+  winClose: () => ipcRenderer.invoke('window:close'),
+
+  // analytics
+  analyticsSummary: () => ipcRenderer.invoke('analytics:summary'),
+  analyticsPriceDynamics: (storeId, productId) => ipcRenderer.invoke('analytics:priceDynamics', storeId, productId),
+  analyticsSaveMatch: (refs, label) => ipcRenderer.invoke('analytics:saveMatch', refs, label),
+  analyticsSeparateMatch: (refs) => ipcRenderer.invoke('analytics:separateMatch', refs),
+  analyticsExportCsv: (rows) => ipcRenderer.invoke('analytics:exportCsv', rows),
+  analyticsExportExcel: (rows) => ipcRenderer.invoke('analytics:exportExcel', rows),
+  analyticsExportPdf: (rows) => ipcRenderer.invoke('analytics:exportPdf', rows)
+})
