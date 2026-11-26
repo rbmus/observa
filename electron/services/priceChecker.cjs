@@ -99,9 +99,11 @@ class PriceChecker {
     this.emit('store:checking', { storeId })
 
     try {
+      const reportProgress = payload => this.emit('monitor:progress', { storeId, ...payload })
       const result = store.sourceType === 'telegram'
         ? await fetchTelegramChannel(store.url)
-        : await fetchAndParse(store.url)
+        : await fetchAndParse(store.url, reportProgress)
+      reportProgress({ phase: 'saving', pages: null, products: result.products.length })
       const now = new Date().toISOString()
 
       // обновляем/добавляем товары
@@ -223,6 +225,14 @@ class PriceChecker {
       this.emit('store:error', { storeId, error: message })
       return { ok: false, error: message }
     }
+  }
+
+  /** Отменяет проверки, которые ещё ждут в очереди. Уже выполняющиеся
+   *  запросы к сайтам завершатся сами — прервать HTTP-запрос нельзя. */
+  cancelPending() {
+    const jobs = this.checkQueue.splice(0)
+    for (const job of jobs) job.resolve({ ok: false, cancelled: true })
+    return jobs.length
   }
 
   async checkAll({ includeDisabled = false } = {}) {

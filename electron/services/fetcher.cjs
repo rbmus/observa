@@ -808,11 +808,14 @@ function mergeProducts(into, items, pageUrl) {
 /** Fetches a public catalog page. Structured commerce metadata is preferred over visual heuristics.
  * Falls back to a JS-rendered DOM and same-domain catalog crawling when the
  * static HTML exposes too few products. */
-async function fetchAndParse(url) {
+async function fetchAndParse(url, onProgress) {
+  const progress = (phase, extra = {}) => {
+    try { onProgress?.({ phase, ...extra }) } catch { /* progress is best-effort */ }
+  }
   const magapCatalog = await fetchMagapCatalog(url)
-  if (magapCatalog) return magapCatalog
+  if (magapCatalog) { progress('done', { pages: 1, products: magapCatalog.products.length }); return magapCatalog }
   const pricingCatalog = await fetchPublicPricingCatalog(url)
-  if (pricingCatalog) return pricingCatalog
+  if (pricingCatalog) { progress('done', { pages: 1, products: pricingCatalog.products.length }); return pricingCatalog }
 
   let renderedPages = 0
   const maybeRender = async (parsed, finalUrl) => {
@@ -846,6 +849,7 @@ async function fetchAndParse(url) {
   const first = await fetchPage(url)
   const products = [...first.products]
   const title = first.title
+  progress('fetch', { pages: 1, products: products.length })
   const visited = new Set([first.finalUrl])
   const detailCandidates = first.$ ? discoverDetailLinks(first.$, first.finalUrl) : []
 
@@ -885,8 +889,10 @@ async function fetchAndParse(url) {
   while (queue.length && products.length < MAX_PRODUCTS) {
     const batch = queue.splice(0, CRAWL_CONCURRENCY)
     await Promise.all(batch.map(fetchInto))
+    progress('crawl', { pages: visited.size, products: products.length, queue: queue.length })
   }
 
+  progress('details', { pages: visited.size, products: products.length })
   // Detail pages linked from product cards — they often expose prices that
   // the listing itself doesn't render.
   const detailQueue = detailCandidates.filter(link => !visited.has(link)).slice(0, MAX_DETAIL_PAGES)
@@ -902,6 +908,7 @@ async function fetchAndParse(url) {
     }))
   }
 
+  progress('done', { pages: visited.size, products: Math.min(products.length, MAX_PRODUCTS) })
   return { url: first.finalUrl, title, fetchedAt: new Date().toISOString(), products: products.slice(0, MAX_PRODUCTS) }
 }
 

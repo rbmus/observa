@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { AppSettings } from '../types'
+import type { AppSettings, UpdateState } from '../types'
 import { Icon } from '../components/icons'
 import Loader from '../components/Loader'
 
@@ -16,6 +16,9 @@ export default function Settings() {
   const [saving, setSaving] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [version, setVersion] = useState('')
+  const [updateInfo, setUpdateInfo] = useState<UpdateState | null>(null)
+  const [updateBusy, setUpdateBusy] = useState(false)
   const isWindows = window.navigator.platform.toLowerCase().includes('win')
 
   const loadSettings = useCallback(async () => {
@@ -29,6 +32,19 @@ export default function Settings() {
   }, [])
 
   useEffect(() => { void loadSettings() }, [loadSettings])
+
+  useEffect(() => {
+    window.observa.appVersion().then(setVersion).catch(() => {})
+    window.observa.updateStatus().then(setUpdateInfo).catch(() => {})
+    return window.observa.onUpdateEvent(setUpdateInfo)
+  }, [])
+
+  const checkUpdates = async () => {
+    setUpdateBusy(true)
+    const result = await window.observa.updateCheck()
+    setUpdateBusy(false)
+    if (!result.ok) setMessage(result.error || 'Не удалось проверить обновления')
+  }
 
   const update = async (patch: Partial<AppSettings>, key: string) => {
     if (!settings) return
@@ -65,6 +81,39 @@ export default function Settings() {
             <input className="settings-switch" type="checkbox" checked={settings[row.key]} disabled={disabled} onChange={event => update({ [row.key]: event.target.checked }, row.key)} />
           </label>
         })}
+      </div>
+    </section>
+
+    <section className="settings-section">
+      <div className="settings-section-heading"><span className="settings-section-icon"><Icon name="alert" size={17} /></span><div><h2>Уведомления</h2><p>Системные уведомления macOS/Windows при событиях мониторинга</p></div></div>
+      <div className="dashboard-panel settings-card">
+        <label className="settings-row">
+          <span className="settings-row-copy"><b>Уведомлять об изменении цен</b><small>Когда проверка находит новую цену, OBSERVA покажет уведомление. За один прогон источника приходит одна сводка.</small></span>
+          <input className="settings-switch" type="checkbox" checked={settings.notifyPriceChanges} disabled={saving === 'notifyPriceChanges'} onChange={event => update({ notifyPriceChanges: event.target.checked }, 'notifyPriceChanges')} />
+        </label>
+      </div>
+    </section>
+
+    <section className="settings-section">
+      <div className="settings-section-heading"><span className="settings-section-icon"><Icon name="download" size={17} /></span><div><h2>Обновления</h2><p>OBSERVA проверяет новые версии при запуске и может обновляться автоматически</p></div></div>
+      <div className="dashboard-panel settings-card">
+        <div className="settings-row">
+          <span className="settings-row-copy">
+            <b>Текущая версия</b>
+            <small>{version ? `OBSERVA ${version}` : '…'}{updateInfo?.packaged === false ? ' · dev-сборка, автообновление отключено' : ''}</small>
+          </span>
+          <div className="page-actions">
+            {updateInfo?.status === 'downloaded' && <button className="btn primary" onClick={() => window.observa.updateInstall()}><Icon name="refresh" size={14} /> Установить и перезапустить</button>}
+            <button className="btn" onClick={checkUpdates} disabled={updateBusy || updateInfo?.packaged === false}>
+              {updateBusy || updateInfo?.status === 'checking' || updateInfo?.status === 'downloading'
+                ? updateInfo?.status === 'downloading' ? `Загрузка ${updateInfo?.percent ?? 0}%` : 'Проверяю…'
+                : 'Проверить обновления'}
+            </button>
+          </div>
+        </div>
+        {updateInfo?.status === 'available' && <div className="settings-row"><span className="settings-row-copy"><b>Найдена версия {updateInfo?.version}</b><small>Скачивается автоматически…</small></span></div>}
+        {updateInfo?.status === 'latest' && <div className="settings-row"><span className="settings-row-copy"><b>Установлена последняя версия</b><small>Обновлений нет.</small></span></div>}
+        {updateInfo?.status === 'error' && updateInfo?.error && <div className="settings-error" role="alert">{updateInfo?.error}</div>}
       </div>
     </section>
 

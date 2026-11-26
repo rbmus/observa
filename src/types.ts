@@ -71,11 +71,30 @@ export interface AppSettings {
   startMinimized: boolean
   defaultCheckIntervalMin: number
   maxConcurrentChecks: number
+  notifyPriceChanges: boolean
+}
+
+export interface AnalyticsFocus {
+  key?: string
+  search?: string
+}
+
+export interface UpdateState {
+  status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'latest' | 'error'
+  version: string | null
+  percent?: number
+  error?: string | null
+  packaged?: boolean
 }
 
 export interface MonitorEvent {
-  event: 'store:checking' | 'store:checked' | 'store:error' | 'price:changed'
+  event: 'store:checking' | 'store:checked' | 'store:error' | 'price:changed' | 'monitor:progress'
   storeId?: string
+  phase?: 'fetch' | 'crawl' | 'details' | 'saving' | 'done'
+  pages?: number | null
+  products?: number
+  queue?: number
+  cancelled?: boolean
   productId?: string
   productName?: string
   oldPrice?: number | null
@@ -218,10 +237,11 @@ declare global {
       monitorStart: () => Promise<MonitorStatus>
       monitorStop: () => Promise<MonitorStatus>
       monitorCheckNow: (storeId: string) => Promise<{ ok: boolean; error?: string }>
-      monitorCheckAll: () => Promise<{ storeId: string; ok: boolean; error?: string; added?: number; updated?: number; removed?: number; productsFound?: number }[]>
+      monitorCheckAll: () => Promise<{ storeId: string; ok: boolean; cancelled?: boolean; error?: string; added?: number; updated?: number; removed?: number; productsFound?: number }[]>
+      monitorCancelChecks: () => Promise<number>
       monitorHistory: (storeId: string, productId: string) => Promise<PricePoint[]>
       monitorProducts: (storeId: string) => Promise<Product[]>
-      monitorFetchPage: (url: string, sourceType?: Store['sourceType']) => Promise<ParsedPage>
+      monitorFetchPage: (url: string, sourceType?: Store['sourceType'], storeId?: string) => Promise<ParsedPage>
       openExternal: (url: string) => Promise<void>
       onMonitorEvent: (cb: (data: MonitorEvent) => void) => () => void
       onAppNavigate: (cb: (page: 'dashboard' | 'analytics' | 'monitoring' | 'stores' | 'settings') => void) => () => void
@@ -229,6 +249,11 @@ declare global {
       winMinimize: () => Promise<void>
       winToggleMaximize: () => Promise<void>
       winClose: () => Promise<void>
+      appVersion: () => Promise<string>
+      updateStatus: () => Promise<UpdateState>
+      updateCheck: () => Promise<{ ok: boolean; error?: string }>
+      updateInstall: () => Promise<void>
+      onUpdateEvent: (cb: (state: UpdateState) => void) => () => void
       analyticsSummary: () => Promise<AnalyticsSummary>
       analyticsSimilarProducts: (storeId: string, productId: string) => Promise<SimilarProductsResult | null>
       analyticsPriceDynamics: (storeId: string, productId: string) => Promise<PricePoint[]>

@@ -1,21 +1,53 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Store, MonitorStatus, MonitorEvent, AnalyticsSummary } from '../types'
-import { formatPrice, formatPercent, formatDate } from '../utils/format'
+import type { Store, MonitorStatus, AnalyticsSummary, MarketOffer } from '../types'
+import { formatPrice, formatPercent, formatDate, timeAgo } from '../utils/format'
 import { Icon } from '../components/icons'
 import Loader from '../components/Loader'
-import MarketHistoryChart, { type MarketHistorySeries } from '../components/MarketHistoryChart'
-import PriceComparisonChart from '../components/PriceComparisonChart'
+import ProductImage from '../components/ProductImage'
+import Checkbox from '../components/Checkbox'
+
+type KindFilter = 'all' | 'apps' | 'subscriptions' | 'telegram' | 'giftcards' | 'other'
+type RoleFilter = 'all' | 'own' | 'competitor' | 'telegram'
+type SortKey = 'name' | 'price' | 'delta' | 'updated'
+
+const KIND_LABELS: Record<KindFilter, string> = {
+  all: 'Все виды',
+  apps: 'Приложения',
+  subscriptions: 'Подписки и игры',
+  telegram: 'Telegram',
+  giftcards: 'Подарочные карты',
+  other: 'Прочее'
+}
+
+function offerKind(name: string): Exclude<KindFilter, 'all'> {
+  const n = name.toLocaleLowerCase('ru')
+  if (/telegram|тг\b|тг |звёзд|звезд|премиум/.test(n)) return 'telegram'
+  if (/xbox|playstation|psn|ps plus|nintendo|steam|ea play|game pass|ubisoft|подписк|тариф/.test(n)) return 'subscriptions'
+  if (/gift|гифт|apple|itunes|google play|пополн|баланс|карта/.test(n)) return 'giftcards'
+  if (/установ|приложен|app\b|apps\b/.test(n)) return 'apps'
+  return 'other'
+}
+
+const ROLE_LABELS: Record<RoleFilter, string> = {
+  all: 'Все',
+  own: 'Мои',
+  competitor: 'Конкуренты',
+  telegram: 'Telegram'
+}
 
 export default function Monitoring() {
   const [stores, setStores] = useState<Store[]>([])
   const [status, setStatus] = useState<MonitorStatus | null>(null)
-  const [events, setEvents] = useState<(MonitorEvent & { at: string })[]>([])
   const [checking, setChecking] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [startAtLogin, setStartAtLogin] = useState(false)
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null)
-  const [history, setHistory] = useState<MarketHistorySeries[]>([])
   const [showDisabledStores, setShowDisabledStores] = useState(false)
+  const [search, setSearch] = useState('')
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const [onlyChanged, setOnlyChanged] = useState(false)
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'delta', dir: -1 })
 
   const refresh = () => {
     Promise.all([window.observa.storesList(), window.observa.monitorStatus(), window.observa.analyticsSummary()]).then(([s, st, data]) => {
@@ -29,8 +61,7 @@ export default function Monitoring() {
   useEffect(() => {
     refresh()
     let timer: number | undefined
-    const unsubscribe = window.observa.onMonitorEvent((e) => {
-      setEvents(prev => [{ ...e, at: new Date().toISOString() }, ...prev].slice(0, 100))
+    const unsubscribe = window.observa.onMonitorEvent(() => {
       window.clearTimeout(timer)
       timer = window.setTimeout(refresh, 250)
     })
@@ -43,33 +74,58 @@ export default function Monitoring() {
   }, [])
 
   const monitoredStores = stores.filter(store => showDisabledStores || store.enabled)
-  const monitoredIds = new Set(stores.filter(store => store.enabled).map(store => store.id))
-  const matchRows = useMemo(() => {
-    const rows = (summary?.priceMatrix || []).map(row => {
-      const offers = row.offers.filter(offer => monitoredIds.has(offer.storeId))
-      const ownOffers = offers.filter(offer => offer.role === 'own')
-      const competitors = offers.filter(offer => offer.role === 'competitor').sort((a, b) => a.price - b.price)
-      return { ...row, offers, ownOffers, bestCompetitor: competitors[0] || null }
-    }).filter(row => row.offers.length > 0)
-    return rows.some(row => row.ownOffers.length > 0) ? rows.filter(row => row.ownOffers.length > 0) : rows
-  }, [summary, stores])
-  const selectedRow = matchRows[0]
-  const selectedKey = selectedRow ? `${selectedRow.productName}|${selectedRow.currency}` : ''
-  useEffect(() => {
-    let active = true
-    if (!selectedRow) { setHistory([]); return () => { active = false } }
-    Promise.all(selectedRow.offers.map(async offer => ({
-      storeName: offer.storeName, role: offer.role,
-      points: await window.observa.analyticsPriceDynamics(offer.storeId, offer.productId)
-    }))).then(data => { if (active) setHistory(data) }).catch(() => { if (active) setHistory([]) })
-    return () => { active = false }
-  }, [selectedKey, summary])
-  const sourceCounts = [
-    { label: 'Активны', count: stores.filter(store => store.enabled && store.status === 'ok').length, tone: 'ok' },
-    { label: 'Проверяются', count: stores.filter(store => store.enabled && store.status === 'checking').length, tone: 'checking' },
-    { label: 'С ошибкой', count: stores.filter(store => store.enabled && store.status === 'error').length, tone: 'error' },
-    { label: 'Ожидают', count: stores.filter(store => store.enabled && store.status === 'idle').length, tone: 'idle' },
-  ]
+  const changeByOffer = useMemo(() => {
+    const map = new Map<string, { changePercent: number; lastChangedAt: string }>()
+    for (const change of summary?.recentPriceChanges || []) {
+      map.set(`${change.storeId}|${change.productId}`, { changePercent: change.changePercent, lastChangedAt: change.lastChangedAt })
+    }
+    return map
+  }, [summary])
+
+  const offers = useMemo(() => {
+    const all = summary?.allOffers || []
+    const query = search.trim().toLocaleLowerCase('ru')
+    const filtered = all.filter(offer => {
+      if (kindFilter !== 'all' && offerKind(offer.productName) !== kindFilter) return false
+      if (roleFilter !== 'all') {
+        if (roleFilter === 'telegram' ? offer.sourceType !== 'telegram' : offer.role !== roleFilter) return false
+      }
+      if (onlyChanged && !changeByOffer.has(`${offer.storeId}|${offer.productId}`)) return false
+      if (query && !`${offer.productName} ${offer.storeName}`.toLocaleLowerCase('ru').includes(query)) return false
+      return true
+    })
+    const deltaOf = (offer: MarketOffer) => changeByOffer.get(`${offer.storeId}|${offer.productId}`)?.changePercent ?? null
+    const valueOf = (offer: MarketOffer): string | number | null => {
+      switch (sort.key) {
+        case 'name': return offer.productName.toLocaleLowerCase('ru')
+        case 'price': return offer.price
+        case 'delta': return deltaOf(offer)
+        case 'updated': return offer.lastChecked || ''
+      }
+    }
+    return filtered.slice().sort((a, b) => {
+      const av = valueOf(a); const bv = valueOf(b)
+      if (av == null && bv == null) return a.productName.localeCompare(b.productName, 'ru')
+      if (av == null) return 1
+      if (bv == null) return -1
+      const cmp = typeof av === 'string' ? av.localeCompare(String(bv), 'ru') : (av as number) - (bv as number)
+      return cmp * sort.dir || a.productName.localeCompare(b.productName, 'ru')
+    })
+  }, [summary, search, kindFilter, roleFilter, onlyChanged, sort, changeByOffer])
+
+  const kindCounts = useMemo(() => {
+    const counts: Record<KindFilter, number> = { all: 0, apps: 0, subscriptions: 0, telegram: 0, giftcards: 0, other: 0 }
+    for (const offer of summary?.allOffers || []) {
+      counts.all++
+      counts[offerKind(offer.productName)]++
+    }
+    return counts
+  }, [summary])
+
+  const toggleSort = (key: SortKey) => {
+    setSort(current => current.key === key ? { key, dir: current.dir === 1 ? -1 : 1 } : { key, dir: key === 'name' || key === 'updated' ? 1 : -1 })
+  }
+  const sortMark = (key: SortKey) => sort.key === key ? (sort.dir === 1 ? ' ↑' : ' ↓') : ''
 
   const toggleStartAtLogin = async () => {
     const enabled = await window.observa.monitorSetStartAtLogin(!startAtLogin)
@@ -100,16 +156,22 @@ export default function Monitoring() {
     return <div className="page-loader"><Loader size={36} />Загрузка мониторинга…</div>
   }
 
+  const enabledCount = stores.filter(store => store.enabled).length
+  const checkingCount = status?.checkingStores?.length ?? 0
+
   return (
     <div className="monitoring-page">
       <div className="page-header">
         <div>
           <div className="page-title">Мониторинг</div>
-          <div className="page-subtitle">
-            Мониторинг продолжает работать, когда окно скрыто в системном трее.
-          </div>
+          <div className="page-subtitle">Все отслеживаемые предложения рынка в реальном времени</div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="monitor-header-actions">
+          {checkingCount > 0 && (
+            <button className="btn" onClick={async () => { await window.observa.monitorCancelChecks(); refresh() }}>
+              <Icon name="stop" size={14} /> Отменить очередь
+            </button>
+          )}
           <button className="btn" onClick={checkAll} disabled={checking === 'all'}>
             {checking === 'all' ? 'Проверка…' : <><Icon name="zap" size={14} /> Проверить все сейчас</>}
           </button>
@@ -119,58 +181,93 @@ export default function Monitoring() {
         </div>
       </div>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Режим</div>
-          <div className="stat-value small">
-            <span className={`badge ${status?.running ? 'ok' : 'error'}`}>
-              {status?.running ? <><Icon name="activity" size={11} /> РАБОТАЕТ</> : <><Icon name="clock" size={11} /> ОСТАНОВЛЕН</>}
-            </span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Запущен</div>
-          <div className="stat-value small">{status?.startedAt ? formatDate(status.startedAt) : '—'}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Последний тик</div>
-          <div className="stat-value small">{status?.lastTickAt ? formatDate(status.lastTickAt) : '—'}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Успешных проверок</div>
-          <div className="stat-value">{status?.totalChecks ?? 0}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Ошибок</div>
-          <div className="stat-value" style={{ color: 'var(--red)' }}>{status?.totalErrors ?? 0}</div>
-        </div>
+      <div className="monitor-status-strip dashboard-panel">
+        <span className={`badge ${status?.running ? 'ok' : 'error'}`}>
+          <span className={`monitor-dot ${status?.running ? 'on' : 'off'}`} />
+          {status?.running ? 'Мониторинг работает' : 'Мониторинг остановлен'}
+        </span>
+        <span className="monitor-status-item">Тик: {status?.lastTickAt ? timeAgo(status.lastTickAt) : '—'}</span>
+        <span className="monitor-status-item">Проверок: <b>{status?.totalChecks ?? 0}</b></span>
+        <span className="monitor-status-item">Ошибок: <b style={{ color: status?.totalErrors ? 'var(--red)' : undefined }}>{status?.totalErrors ?? 0}</b></span>
+        <span className="monitor-status-item">В проверке: <b>{checkingCount}</b> из {enabledCount}</span>
+        {window.navigator.platform.toLowerCase().includes('win') && (
+          <button className={`btn small ${startAtLogin ? 'primary' : ''}`} onClick={toggleStartAtLogin} style={{ marginLeft: 'auto' }}>
+            Автозапуск: {startAtLogin ? 'вкл' : 'выкл'}
+          </button>
+        )}
       </div>
 
-      {window.navigator.platform.toLowerCase().includes('win') && <section className="dashboard-panel monitoring-autostart">
-        <div><b>Фоновый запуск Windows</b><p>OBSERVA запускается при входе в систему и продолжает проверять цены в трее.</p></div>
-        <button className={`btn ${startAtLogin ? 'primary' : ''}`} onClick={toggleStartAtLogin}>{startAtLogin ? 'Включён' : 'Включить'}</button>
-      </section>}
-
-      <div className="monitoring-insight-grid">
-        <section className="dashboard-panel monitoring-chart-panel">
-          <div className="panel-heading"><div><h2>Динамика цен</h2><p>{selectedRow ? selectedRow.productName : 'Сравниваемые предложения'}</p></div><span className="monitoring-chart-count">{history.reduce((count, item) => count + item.points.length, 0)} точек истории</span></div>
-          {history.some(item => item.points.length >= 2)
-            ? <MarketHistoryChart series={history} currency={selectedRow?.currency || 'RUB'} />
-            : selectedRow ? <PriceComparisonChart offers={selectedRow.offers} currency={selectedRow.currency} />
-              : <div className="monitoring-chart-empty">Добавьте источники и товары, чтобы увидеть сравнение цен.</div>}
-        </section>
-        <section className="dashboard-panel monitoring-health-panel">
-          <div className="panel-heading"><div><h2>Состояние источников</h2><p>Текущий статус проверок</p></div><b>{stores.filter(store => store.enabled).length}</b></div>
-          <div className="source-health-bar" role="img" aria-label="Распределение источников по статусу">
-            {sourceCounts.map(item => <i key={item.tone} className={item.tone} style={{ width: `${stores.filter(store => store.enabled).length ? item.count / stores.filter(store => store.enabled).length * 100 : 0}%` }} />)}
-          </div>
-          <div className="source-health-legend">{sourceCounts.map(item => <div key={item.tone}><span className={`health-dot ${item.tone}`} /><span>{item.label}</span><b>{item.count}</b></div>)}</div>
-          <div className="monitoring-health-footer"><span>Проверок выполнено</span><b>{status?.totalChecks ?? 0}</b><span>Ошибок</span><b className="health-error-number">{status?.totalErrors ?? 0}</b></div>
-        </section>
+      <div className="monitoring-sources-heading">
+        <div className="section-title">Предложения рынка <span className="monitoring-source-count">{offers.length}</span></div>
+      </div>
+      <div className="market-table-toolbar">
+        <label className="search-box"><Icon name="search" size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Товар или источник…" /></label>
+        <div className="filter-pills" role="group" aria-label="Вид услуги">
+          {(Object.keys(KIND_LABELS) as KindFilter[]).map(kind => (
+            <button key={kind} className={kindFilter === kind ? 'selected' : ''} onClick={() => setKindFilter(kind)}>
+              {KIND_LABELS[kind]} <span>{kindCounts[kind]}</span>
+            </button>
+          ))}
+        </div>
+        <div className="filter-pills" role="group" aria-label="Роль источника">
+          {(Object.keys(ROLE_LABELS) as RoleFilter[]).map(role => (
+            <button key={role} className={roleFilter === role ? 'selected' : ''} onClick={() => setRoleFilter(role)}>{ROLE_LABELS[role]}</button>
+          ))}
+        </div>
+        <Checkbox checked={onlyChanged} onChange={setOnlyChanged} label="Только изменения" />
       </div>
 
-      <div className="monitoring-sources-heading"><div className="section-title">Отслеживаемые магазины <span className="monitoring-source-count">{monitoredStores.length}</span></div><button className="text-button" onClick={() => setShowDisabledStores(value => !value)}>{showDisabledStores ? 'Скрыть выключенные' : `Показать выключенные (${stores.filter(store => !store.enabled).length})`}</button></div>
-      <div className="table-wrap" style={{ marginBottom: 24 }}>
+      <div className="table-wrap market-table-wrap">
+        <table className="market-watch-table">
+          <thead>
+            <tr>
+              <th>Товар / услуга</th>
+              <th>Вид</th>
+              <th>Источник</th>
+              <th className="sortable" onClick={() => toggleSort('price')}>Цена{sortMark('price')}</th>
+              <th className="sortable" onClick={() => toggleSort('delta')}>Изменение{sortMark('delta')}</th>
+              <th className="sortable" onClick={() => toggleSort('updated')}>Обновлено{sortMark('updated')}</th>
+              <th>Статус</th>
+            </tr>
+          </thead>
+          <tbody>
+            {offers.map(offer => {
+              const change = changeByOffer.get(`${offer.storeId}|${offer.productId}`)
+              const kind = offerKind(offer.productName)
+              return (
+                <tr key={`${offer.storeId}|${offer.productId}`} className="row-clickable" onClick={() => window.observa.openExternal(offer.url)} title="Открыть предложение на сайте">
+                  <td>
+                    <div className="market-product-cell">
+                      <ProductImage imageUrl={offer.imageUrl} sourceUrl={offer.url} className="market-product-image" placeholderClassName="market-product-placeholder" placeholderIcon="tag" />
+                      <span><b>{offer.productName}</b><small>{offer.category !== 'general' ? offer.category : ''}</small></span>
+                    </div>
+                  </td>
+                  <td><span className={`offer-kind offer-kind-${kind}`}>{KIND_LABELS[kind]}</span></td>
+                  <td>
+                    <b>{offer.storeName}</b>
+                    <small className="matrix-source">{offer.role === 'own' ? 'Мой магазин' : offer.sourceType === 'telegram' ? 'Telegram' : 'Конкурент'}</small>
+                  </td>
+                  <td className="matrix-price">{offer.price == null ? '—' : formatPrice(offer.price, offer.currency)}</td>
+                  <td className={change ? (change.changePercent > 0 ? 'price-up' : 'price-down') : 'monitor-cell-muted'}>
+                    {change ? formatPercent(change.changePercent) : '—'}
+                  </td>
+                  <td className="monitor-cell-muted">{offer.lastChecked ? timeAgo(offer.lastChecked) : '—'}</td>
+                  <td>{offer.stale ? <span className="badge checking">Устарела</span> : <span className="badge ok">Актуальна</span>}</td>
+                </tr>
+              )
+            })}
+            {!offers.length && (
+              <tr><td colSpan={7} className="table-empty-cell">Нет предложений по выбранным фильтрам.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="monitoring-sources-heading spaced">
+        <div className="section-title">Источники <span className="monitoring-source-count">{monitoredStores.length}</span></div>
+        <button className="text-button" onClick={() => setShowDisabledStores(value => !value)}>{showDisabledStores ? 'Скрыть выключенные' : `Показать выключенные (${stores.filter(store => !store.enabled).length})`}</button>
+      </div>
+      <div className="table-wrap monitor-table-wrap">
         <table>
           <thead>
             <tr>
@@ -187,8 +284,8 @@ export default function Monitoring() {
             {monitoredStores.map(s => (
               <tr key={s.id}>
                 <td>
-                  <div style={{ fontWeight: 500 }}>{s.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{s.url}</div>
+                  <div className="monitor-store-name">{s.name}</div>
+                  <div className="monitor-store-url">{s.url}</div>
                 </td>
                 <td>{s.checkIntervalMin} мин</td>
                 <td>{s.products.length}</td>
@@ -197,8 +294,8 @@ export default function Monitoring() {
                     {s.status === 'ok' ? 'OK' : s.status === 'error' ? 'Ошибка' : s.status === 'checking' ? 'Проверка…' : 'Ожидание'}
                   </span>
                 </td>
-                <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatDate(s.lastSuccessCheck || (s.status === 'ok' ? s.lastCheck : null))}</td>
-                <td style={{ fontSize: 12, color: 'var(--red)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <td className="monitor-cell-muted">{formatDate(s.lastSuccessCheck || (s.status === 'ok' ? s.lastCheck : null))}</td>
+                <td className="monitor-error-cell" title={s.lastError || ''}>
                   {s.lastError || '—'}
                 </td>
                 <td>
@@ -213,41 +310,8 @@ export default function Monitoring() {
               </tr>
             ))}
             {monitoredStores.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: 'var(--text-secondary)' }}>
+              <tr><td colSpan={7} className="table-empty-cell">
                 {stores.length ? 'Включите мониторинг у источника во вкладке «Источники» или покажите выключенные.' : 'Добавьте магазины во вкладке «Источники»'}
-              </td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="section-title">Изменения цен</div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Время</th>
-              <th>Товар</th>
-              <th>Было</th>
-              <th>Стало</th>
-              <th>Изменение</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.filter(e => e.event === 'price:changed').map((e, i) => (
-              <tr key={i}>
-                <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatDate(e.at)}</td>
-                <td>{e.productName}</td>
-                <td>{formatPrice(e.oldPrice ?? null, e.currency)}</td>
-                <td style={{ fontWeight: 600 }}>{formatPrice(e.newPrice ?? null, e.currency)}</td>
-                <td className={e.changePercent && e.changePercent > 0 ? 'price-up' : 'price-down'}>
-                  {formatPercent(e.changePercent)}
-                </td>
-              </tr>
-            ))}
-            {events.filter(e => e.event === 'price:changed').length === 0 && (
-              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 30, color: 'var(--text-secondary)' }}>
-                Изменений цен пока не зафиксировано
               </td></tr>
             )}
           </tbody>

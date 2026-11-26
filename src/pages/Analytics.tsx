@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AnalyticsSummary, PriceMatrixRow } from '../types'
+import type { AnalyticsFocus, AnalyticsSummary, PriceMatrixRow } from '../types'
 import type { MarketOffer, PriceOffer } from '../types'
 import { formatPrice, formatPercent } from '../utils/format'
 import { Icon } from '../components/icons'
@@ -9,7 +9,22 @@ import PriceComparisonChart from '../components/PriceComparisonChart'
 import MarketHistoryChart, { type MarketHistorySeries } from '../components/MarketHistoryChart'
 import ProductImage from '../components/ProductImage'
 
-interface Props { onOpenCompetitors: () => void }
+interface Props { onOpenCompetitors: () => void; focus?: AnalyticsFocus | null }
+
+const FILTERS_KEY = 'observa.analytics.filters'
+
+function loadFilters() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FILTERS_KEY) || '{}')
+    return {
+      search: typeof saved.search === 'string' ? saved.search : '',
+      storeType: ['all', 'own', 'competitor', 'telegram'].includes(saved.storeType) ? saved.storeType : 'all',
+      currency: typeof saved.currency === 'string' ? saved.currency : 'all',
+      comparisonOnly: Boolean(saved.comparisonOnly),
+      view: saved.view === 'offers' || saved.view === 'review' ? saved.view : 'comparisons'
+    }
+  } catch { return null }
+}
 
 function sourceHost(url: string) {
   try { return new URL(url).hostname } catch { return url }
@@ -19,15 +34,16 @@ function offerIsStale(offer: MarketOffer, now: number) {
   return !offer.lastChecked || now - new Date(offer.lastChecked).getTime() > (offer.staleAfterMs || 60 * 60 * 1000)
 }
 
-export default function Analytics({ onOpenCompetitors }: Props) {
+export default function Analytics({ onOpenCompetitors, focus }: Props) {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null)
   const [exporting, setExporting] = useState(false)
   const [message, setMessage] = useState('')
-  const [search, setSearch] = useState('')
-  const [storeType, setStoreType] = useState<'all' | 'own' | 'competitor' | 'telegram'>('all')
-  const [currency, setCurrency] = useState('all')
-  const [comparisonOnly, setComparisonOnly] = useState(false)
-  const [view, setView] = useState<'comparisons' | 'offers' | 'review'>('comparisons')
+  const initialFilters = loadFilters()
+  const [search, setSearch] = useState(initialFilters?.search ?? '')
+  const [storeType, setStoreType] = useState<'all' | 'own' | 'competitor' | 'telegram'>(initialFilters?.storeType ?? 'all')
+  const [currency, setCurrency] = useState(initialFilters?.currency ?? 'all')
+  const [comparisonOnly, setComparisonOnly] = useState(initialFilters?.comparisonOnly ?? false)
+  const [view, setView] = useState<'comparisons' | 'offers' | 'review'>(initialFilters?.view ?? 'comparisons')
   const [selectedReviewKeys, setSelectedReviewKeys] = useState<string[]>([])
   const [selectedMatch, setSelectedMatch] = useState('')
   const [marketHistory, setMarketHistory] = useState<MarketHistorySeries[]>([])
@@ -36,6 +52,16 @@ export default function Analytics({ onOpenCompetitors }: Props) {
   const [now, setNow] = useState(Date.now())
 
   const refresh = () => window.observa.analyticsSummary().then(setSummary)
+
+  useEffect(() => {
+    try { localStorage.setItem(FILTERS_KEY, JSON.stringify({ search, storeType, currency, comparisonOnly, view })) } catch { /* ignore */ }
+  }, [search, storeType, currency, comparisonOnly, view])
+
+  useEffect(() => {
+    if (!focus) return
+    if (focus.key) { setSelectedMatch(focus.key); setView('comparisons') }
+    if (focus.search) { setSearch(focus.search); setView('offers') }
+  }, [focus])
 
   useEffect(() => {
     refresh()

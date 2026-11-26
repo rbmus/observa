@@ -5,6 +5,7 @@ import { Icon } from '../components/icons'
 import Checkbox from '../components/Checkbox'
 import Loader from '../components/Loader'
 import FeedbackModal from '../components/FeedbackModal'
+import { useEscapeKey } from '../utils/useEscapeKey'
 
 interface Props {
   onOpenStore: (id: string) => void
@@ -194,6 +195,9 @@ export default function Stores({ onOpenStore }: Props) {
     const matchesFilter = filter === 'all' || (filter === 'enabled' ? s.enabled : filter === 'errors' ? s.status === 'error' : s.role === 'own')
     return matchesSearch && matchesFilter
   })
+
+  useEscapeKey(showModal, () => setShowModal(false))
+  useEscapeKey(Boolean(importPreview) && !setupBusy, () => setImportPreview(null))
   const sourceHealth = [
     { label: 'Активны', count: stores.filter(s => s.status === 'ok').length, tone: 'ok' },
     { label: 'Проверяются', count: stores.filter(s => s.status === 'checking').length, tone: 'checking' },
@@ -215,7 +219,9 @@ export default function Stores({ onOpenStore }: Props) {
           </div>
         </div>
         <div className="competitor-actions">
-          {stores.length > 0 && <button className="btn" onClick={checkAll} disabled={checkingAll}><Icon name="refresh" size={14} /> {checkingAll ? 'Проверяю…' : 'Проверить все'}</button>}
+          {stores.length > 0 && (checkingAll
+            ? <button className="btn" onClick={async () => { await window.observa.monitorCancelChecks(); setCheckingAll(false) }}><Icon name="stop" size={14} /> Отменить проверку</button>
+            : <button className="btn" onClick={checkAll}><Icon name="refresh" size={14} /> Проверить все</button>)}
           <button className="btn" onClick={() => { setForm({ ...EMPTY_FORM, checkIntervalMin: defaultInterval, role: 'own' }); setShowModal(true) }}><Icon name="plus" size={14} /> Свой магазин</button>
           <button className="btn primary" onClick={() => { setForm({ ...EMPTY_FORM, checkIntervalMin: defaultInterval }); setShowModal(true) }}><Icon name="plus" size={14} /> Добавить источник</button>
         </div>
@@ -249,12 +255,10 @@ export default function Stores({ onOpenStore }: Props) {
 
       {stores.length === 0 ? (
         <div className="empty-state" style={{ padding: '80px 20px' }}>
-          <div className="icon"><Icon name="store" size={48} /></div>
-          <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
-            Пока нет конкурентов
-          </div>
-            <div>Добавьте магазин или канал, чтобы начать мониторинг цен</div>
-          <button className="btn primary" style={{ marginTop: 20 }} onClick={() => { setForm(EMPTY_FORM); setShowModal(true) }}>
+          <div className="empty-state-icon"><Icon name="store" size={26} /></div>
+          <div className="empty-state-title">Пока нет конкурентов</div>
+          <div className="empty-state-text">Добавьте магазин или канал, чтобы начать мониторинг цен</div>
+          <button className="btn primary empty-state-action" onClick={() => { setForm(EMPTY_FORM); setShowModal(true) }}>
             <Icon name="plus" size={14} /> Добавить источник
           </button>
         </div>
@@ -362,7 +366,7 @@ export default function Stores({ onOpenStore }: Props) {
                 </select>
               </div>
             </div>
-            {error && <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 10 }}>{error}</div>}
+            {error && <div className="form-error">{error}</div>}
             <div className="modal-actions">
               <button className="btn" onClick={() => setShowModal(false)}>Отмена</button>
               <button className="btn primary" onClick={addStore} disabled={saving}>

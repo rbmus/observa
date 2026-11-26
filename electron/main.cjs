@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const net = require('net')
 const ExcelJS = require('exceljs')
+const { autoUpdater } = require('electron-updater')
 const { StoreService } = require(path.join(__dirname, 'services/storeService.cjs'))
 const { PriceChecker } = require(path.join(__dirname, 'services/priceChecker.cjs'))
 const { Analyzer, cleanComparableName, normalizeMatchName, similarity } = require(path.join(__dirname, 'services/analyzer.cjs'))
@@ -20,13 +21,73 @@ let settingsFilePath = null
 let appSettings = null
 let splashWindow = null
 
+// Батчим уведомления об изменениях цен: одна проверка источника может дать
+// десятки price:changed — пользователю нужна одна сводка, а не спам.
+const pendingPriceNotifications = new Map()
+
+// ---------- Автообновление через GitHub Releases ----------
+let updateState = { status: 'idle', version: null, percent: 0, error: null }
+
+function sendUpdateEvent(patch) {
+  updateState = { ...updateState, ...patch }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update:event', updateState)
+  }
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged) return
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.on('checking-for-update', () => sendUpdateEvent({ status: 'checking', error: null }))
+  autoUpdater.on('update-available', info => sendUpdateEvent({ status: 'available', version: info.version }))
+  autoUpdater.on('update-not-available', () => sendUpdateEvent({ status: 'latest' }))
+  autoUpdater.on('download-progress', p => sendUpdateEvent({ status: 'downloading', percent: Math.round(p.percent || 0) }))
+  autoUpdater.on('update-downloaded', info => {
+    sendUpdateEvent({ status: 'downloaded', version: info.version })
+    const notification = new Notification({ title: 'OBSERVA', body: `Готово обновление ${info.version} — перезапустите приложение` })
+    notification.on('click', () => openWindow('settings'))
+    notification.show()
+  })
+  autoUpdater.on('error', err => sendUpdateEvent({ status: 'error', error: err?.message || String(err) }))
+  autoUpdater.checkForUpdates().catch(() => {})
+}
+
+function flushPriceNotification(storeId) {
+  const entry = pendingPriceNotifications.get(storeId)
+  pendingPriceNotifications.delete(storeId)
+  if (!entry || !appSettings?.notifyPriceChanges || !Notification.isSupported()) return
+  const storeName = storeService?.getById(storeId)?.name || entry.storeName || 'Источник'
+  let body
+  if (entry.changes.length === 1) {
+    const change = entry.changes[0]
+    body = `${change.productName}: ${formatNotifyPrice(change.oldPrice, change.currency)} → ${formatNotifyPrice(change.newPrice, change.currency)}`
+  } else if (entry.changes.length > 1) {
+    body = `${entry.changes.length} изменений цен. Например: ${entry.changes[0].productName}`
+  } else if (entry.error) {
+    body = `Ошибка проверки: ${entry.error}`
+  } else {
+    return
+  }
+  const notification = new Notification({ title: `OBSERVA — ${storeName}`, body })
+  notification.on('click', () => openWindow('analytics'))
+  notification.show()
+}
+
+function formatNotifyPrice(price, currency) {
+  if (price == null) return '—'
+  try { return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: currency || 'RUB', maximumFractionDigits: 0 }).format(price) }
+  catch { return `${price} ${currency || ''}`.trim() }
+}
+
 const DEFAULT_SETTINGS = {
   autoStartMonitoring: true,
   closeToTray: true,
   launchAtLogin: true,
   startMinimized: true,
   defaultCheckIntervalMin: 60,
-  maxConcurrentChecks: 3
+  maxConcurrentChecks: 3,
+  notifyPriceChanges: true
 }
 
 function normalizeSettings(value = {}) {
@@ -38,7 +99,8 @@ function normalizeSettings(value = {}) {
     launchAtLogin: value.launchAtLogin !== false,
     startMinimized: value.startMinimized !== false,
     defaultCheckIntervalMin: validIntervals.has(Number(value.defaultCheckIntervalMin)) ? Number(value.defaultCheckIntervalMin) : DEFAULT_SETTINGS.defaultCheckIntervalMin,
-    maxConcurrentChecks: Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 8 ? concurrency : DEFAULT_SETTINGS.maxConcurrentChecks
+    maxConcurrentChecks: Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 8 ? concurrency : DEFAULT_SETTINGS.maxConcurrentChecks,
+    notifyPriceChanges: value.notifyPriceChanges !== false
   }
 }
 
@@ -309,6 +371,15 @@ app.whenReady().then(() => {
   analyzer = new Analyzer(storeService)
   priceChecker = new PriceChecker(storeService, analyzer, (event, payload) => {
     invalidateAnalytics()
+    if (event === 'price:changed' && payload?.storeId) {
+      const entry = pendingPriceNotifications.get(payload.storeId) || { changes: [], error: null }
+      entry.changes.push(payload)
+      pendingPriceNotifications.set(payload.storeId, entry)
+    } else if ((event === 'store:error' || event === 'store:checked') && payload?.storeId) {
+      const entry = pendingPriceNotifications.get(payload.storeId) || { changes: [], error: null }
+      if (event === 'store:error') entry.error = payload.error || 'ошибка проверки'
+      flushPriceNotification(payload.storeId)
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('monitor:event', { event, ...payload })
     }
@@ -319,6 +390,7 @@ app.whenReady().then(() => {
 
   createWindow()
   createTray()
+  setupAutoUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -438,17 +510,39 @@ ipcMain.handle('monitor:start', () => { priceChecker.start(); return priceChecke
 ipcMain.handle('monitor:stop', () => { priceChecker.stop(); return priceChecker.getStatus() })
 ipcMain.handle('monitor:checkNow', (_, storeId) => priceChecker.checkStore(storeId))
 ipcMain.handle('monitor:checkAll', () => priceChecker.checkAll({ includeDisabled: true }))
+ipcMain.handle('monitor:cancelChecks', () => priceChecker.cancelPending())
 ipcMain.handle('monitor:history', (_, storeId, productId) => storeService.getHistory(storeId, productId))
 ipcMain.handle('monitor:products', (_, storeId) => storeService.getProducts(storeId))
-ipcMain.handle('monitor:fetchPage', async (_, url, sourceType = 'website') => {
+ipcMain.handle('monitor:fetchPage', async (_, url, sourceType = 'website', storeId = null) => {
+  const reportProgress = storeId
+    ? payload => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('monitor:event', { event: 'monitor:progress', storeId, ...payload }) }
+    : null
   if (sourceType === 'telegram') {
     const { fetchTelegramChannel } = require(path.join(__dirname, 'services/telegramFetcher.cjs'))
     return fetchTelegramChannel(url)
   }
   const { fetchAndParse } = require(path.join(__dirname, 'services/fetcher.cjs'))
-  return fetchAndParse(parseWebUrl(url))
+  return fetchAndParse(parseWebUrl(url), reportProgress)
 })
 ipcMain.handle('monitor:openExternal', (_, url) => shell.openExternal(parseWebUrl(url)))
+
+// ---------- IPC: обновления ----------
+ipcMain.handle('app:version', () => app.getVersion())
+ipcMain.handle('update:status', () => ({ ...updateState, packaged: app.isPackaged, version: app.getVersion() }))
+ipcMain.handle('update:check', async () => {
+  if (!app.isPackaged) return { ok: false, error: 'Автообновление доступно только в установленной версии приложения' }
+  try {
+    sendUpdateEvent({ status: 'checking', error: null })
+    await autoUpdater.checkForUpdates()
+    return { ok: true }
+  } catch (error) {
+    sendUpdateEvent({ status: 'error', error: error?.message || String(error) })
+    return { ok: false, error: error?.message || String(error) }
+  }
+})
+ipcMain.handle('update:install', () => {
+  if (app.isPackaged && updateState.status === 'downloaded') autoUpdater.quitAndInstall()
+})
 
 // ---------- IPC: окно ----------
 ipcMain.handle('window:minimize', () => mainWindow?.minimize())

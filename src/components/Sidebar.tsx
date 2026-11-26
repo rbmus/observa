@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Page } from '../App'
-import type { AnalyticsSummary, MarketOffer, PriceOffer } from '../types'
+import type { AnalyticsSummary, AnalyticsFocus, MarketOffer, PriceOffer } from '../types'
 import { formatPrice, formatPercent, timeAgo } from '../utils/format'
 import { Icon } from './icons'
 import Logo from './Logo'
 
-interface Props { page: Page; onNavigate: (p: Page) => void }
+interface Props { page: Page; onNavigate: (p: Page, focus?: AnalyticsFocus | null) => void }
 
 const icon = (children: ReactNode) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
@@ -93,7 +93,7 @@ export default function Sidebar({ page, onNavigate }: Props) {
                 : own
                   ? `${row.differencePercent! > 0 ? 'Дороже конкурента' : 'Дешевле конкурента'} на ${formatPercent(Math.abs(row.differencePercent!))}`
                   : 'Цена отслеживается'
-            return <button className="sidebar-watch-row" key={`${row.productName}|${row.currency}`} onClick={() => onNavigate('analytics')} title="Открыть сравнение цен">
+            return <button className="sidebar-watch-row" key={`${row.productName}|${row.currency}`} onClick={() => onNavigate('analytics', { key: `${row.productName}|${row.currency}` })} title="Открыть сравнение цен">
               <MarketThumb imageUrl={thumbnail?.imageUrl} url={primaryOffer.url} label={row.productName} />
               <span className="sidebar-watch-copy">
                 <b>{row.productName}</b>
@@ -105,7 +105,7 @@ export default function Sidebar({ page, onNavigate }: Props) {
           {watchedOffers.map((offer: MarketOffer | PriceOffer) => {
             const imageUrl = 'imageUrl' in offer ? offer.imageUrl : null
             const change = summary?.recentPriceChanges.find(item => item.storeId === offer.storeId && item.productId === offer.productId)
-            return <button className="sidebar-watch-row" key={`${offer.storeId}|${offer.productId}`} onClick={() => onNavigate('analytics')} title="Открыть все предложения">
+            return <button className="sidebar-watch-row" key={`${offer.storeId}|${offer.productId}`} onClick={() => onNavigate('analytics', { search: offer.productName })} title="Открыть все предложения">
               <MarketThumb imageUrl={imageUrl} url={offer.url} label={offer.productName} />
               <span className="sidebar-watch-copy">
                 <b>{offer.productName}</b>

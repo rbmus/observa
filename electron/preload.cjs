@@ -26,9 +26,10 @@ contextBridge.exposeInMainWorld('observa', {
   monitorStop: () => ipcRenderer.invoke('monitor:stop'),
   monitorCheckNow: (storeId) => ipcRenderer.invoke('monitor:checkNow', storeId),
   monitorCheckAll: () => ipcRenderer.invoke('monitor:checkAll'),
+  monitorCancelChecks: () => ipcRenderer.invoke('monitor:cancelChecks'),
   monitorHistory: (storeId, productId) => ipcRenderer.invoke('monitor:history', storeId, productId),
   monitorProducts: (storeId) => ipcRenderer.invoke('monitor:products', storeId),
-  monitorFetchPage: (url, sourceType) => ipcRenderer.invoke('monitor:fetchPage', url, sourceType),
+  monitorFetchPage: (url, sourceType, storeId) => ipcRenderer.invoke('monitor:fetchPage', url, sourceType, storeId),
   openExternal: (url) => ipcRenderer.invoke('monitor:openExternal', url),
   onMonitorEvent: (cb) => {
     const listener = (_, data) => cb(data)
@@ -50,6 +51,17 @@ contextBridge.exposeInMainWorld('observa', {
   winMinimize: () => ipcRenderer.invoke('window:minimize'),
   winToggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
   winClose: () => ipcRenderer.invoke('window:close'),
+
+  // updates
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  onUpdateEvent: (cb) => {
+    const listener = (_, data) => cb(data)
+    ipcRenderer.on('update:event', listener)
+    return () => ipcRenderer.removeListener('update:event', listener)
+  },
 
   // analytics
   analyticsSummary: () => ipcRenderer.invoke('analytics:summary'),

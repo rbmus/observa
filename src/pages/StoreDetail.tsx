@@ -7,6 +7,7 @@ import Loader from '../components/Loader'
 import Checkbox from '../components/Checkbox'
 import FeedbackModal from '../components/FeedbackModal'
 import ProductImage from '../components/ProductImage'
+import { useEscapeKey } from '../utils/useEscapeKey'
 
 interface Props {
   storeId: string
@@ -26,7 +27,8 @@ export default function StoreDetail({ storeId, onBack }: Props) {
   const [productForm, setProductForm] = useState({ name: '', url: '', price: '' })
   const [scanResult, setScanResult] = useState<ParsedPage | null>(null)
   const [scanning, setScanning] = useState(false)
-  const [view, setView] = useState<'grid' | 'table'>('table')
+  const [view, setView] = useState<'grid' | 'table' | null>(null)
+  const [progress, setProgress] = useState<{ phase: string; pages: number | null; products: number } | null>(null)
   const [search, setSearch] = useState('')
   const [savingSettings, setSavingSettings] = useState(false)
   const [notice, setNotice] = useState<{ title: string; message: string } | null>(null)
@@ -52,7 +54,16 @@ export default function StoreDetail({ storeId, onBack }: Props) {
         if (selectedProduct) window.observa.monitorHistory(storeId, selectedProduct.id).then(setHistory)
       }, 250)
     })
-    return () => { window.clearTimeout(timer); unsubscribe() }
+    const unsubscribeMonitor = window.observa.onMonitorEvent(event => {
+      if (event.storeId !== storeId) return
+      if (event.event === 'monitor:progress') {
+        setProgress({ phase: event.phase || 'fetch', pages: event.pages ?? null, products: event.products ?? 0 })
+      } else if (event.event === 'store:checked' || event.event === 'store:error') {
+        setProgress(null)
+        refresh()
+      }
+    })
+    return () => { window.clearTimeout(timer); unsubscribe(); unsubscribeMonitor() }
   }, [storeId, selectedProduct?.id])
 
   useEffect(() => {
@@ -89,12 +100,13 @@ export default function StoreDetail({ storeId, onBack }: Props) {
     setScanning(true)
     setScanResult(null)
     try {
-      const result = await window.observa.monitorFetchPage(store.url, store.sourceType)
+      const result = await window.observa.monitorFetchPage(store.url, store.sourceType, storeId)
       setScanResult(result)
     } catch (e: any) {
       setNotice({ title: 'Не удалось просканировать источник', message: e.message || String(e) })
     } finally {
       setScanning(false)
+      setProgress(null)
     }
   }
 
@@ -198,6 +210,18 @@ export default function StoreDetail({ storeId, onBack }: Props) {
   const prices = products.map(p => p.price).filter((p): p is number => p != null)
   const minPrice = prices.length ? Math.min(...prices) : null
   const maxPrice = prices.length ? Math.max(...prices) : null
+  const effectiveView = view ?? (products.length > 40 ? 'grid' : 'table')
+  const progressText = progress ? ({
+    fetch: 'Загружаю страницу…',
+    crawl: `Обход каталога: ${progress.pages ?? '…'} стр. · найдено ${progress.products} товаров`,
+    details: `Страницы товаров: ${progress.products} найдено`,
+    saving: 'Сохраняю изменения…',
+    done: 'Готово'
+  }[progress.phase] || 'Выполняется…') : null
+
+  useEscapeKey(Boolean(similar), () => setSimilar(null))
+  useEscapeKey(showAddProduct, () => setShowAddProduct(false))
+  useEscapeKey(Boolean(editingProduct) && !editProductBusy, () => setEditingProduct(null))
 
   if (!store) {
     return <div className="page-loader"><Loader size={36} />Загрузка магазина…</div>
@@ -207,17 +231,17 @@ export default function StoreDetail({ storeId, onBack }: Props) {
     <div className="store-detail-page">
       <div className="page-header">
         <div>
-          <button className="btn small" onClick={onBack} style={{ marginBottom: 10 }}><Icon name="back" size={14} /> К источникам</button>
+          <div className="store-back-row"><button className="btn small" onClick={onBack}><Icon name="back" size={14} /> К источникам</button></div>
           <div className="page-title">{store.name}</div>
           <div className="page-subtitle">
             <a
               href="#"
+              className="store-header-url"
               onClick={e => { e.preventDefault(); window.observa.openExternal(store.url) }}
-              style={{ color: 'var(--accent)', textDecoration: 'none' }}
             >
               {store.url}
             </a>
-            {' · '}{store.products.length} товаров
+            <span className="muted"> · {store.products.length} товаров</span>
           </div>
           <div className="store-settings">
             <Checkbox checked={store.enabled} disabled={savingSettings} label="Отслеживать" onChange={enabled => updateSettings({ enabled })} />
@@ -234,7 +258,7 @@ export default function StoreDetail({ storeId, onBack }: Props) {
             </label>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="store-header-actions">
           <button className="btn" onClick={scanStore} disabled={scanning}>
             {scanning ? 'Сканирование…' : <><Icon name="search" size={14} /> Сканировать сайт</>}
           </button>
@@ -245,43 +269,34 @@ export default function StoreDetail({ storeId, onBack }: Props) {
         </div>
       </div>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Товаров</div>
-          <div className="stat-value">{products.length}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Мин. цена</div>
-          <div className="stat-value">{formatPrice(minPrice)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Макс. цена</div>
-          <div className="stat-value">{formatPrice(maxPrice)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Последнее успешное обновление</div>
-          <div className="stat-value small">{timeAgo(store.lastSuccessCheck || (store.status === 'ok' ? store.lastCheck : null))}</div>
-        </div>
+      <div className="store-stats-line">
+        <span><b>{products.length}</b> товаров</span>
+        {minPrice != null && <span className="stat-sep">·</span>}
+        {minPrice != null && <span>мин. <b>{formatPrice(minPrice)}</b></span>}
+        {maxPrice != null && <span className="stat-sep">·</span>}
+        {maxPrice != null && <span>макс. <b>{formatPrice(maxPrice)}</b></span>}
+        <span className="stat-sep">·</span>
+        <span>обновлено {timeAgo(store.lastSuccessCheck || (store.status === 'ok' ? store.lastCheck : null))}</span>
       </div>
 
       {/* Результаты сканирования */}
       {scanResult && (
-        <div className="chart-container" style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div>
+        <div className="chart-container scan-panel">
+          <div className="scan-panel-head">
+            <div className="scan-panel-title">
               <b>{scanResult.title}</b>
-              <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>
+              <span className="muted-small">
                 найдено {scanResult.products.length} {store.sourceType === 'telegram' ? 'предложений в постах' : 'товаров с ценами'}
               </span>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="scan-panel-actions">
               <button className="btn primary small" onClick={importScanned}>
                 Импортировать найденное ({Math.min(scanResult.products.length, 500)})
               </button>
               <button className="btn small" onClick={() => setScanResult(null)}>Закрыть</button>
             </div>
           </div>
-          <div className="products-grid" style={{ maxHeight: 380, overflowY: 'auto' }}>
+          <div className="products-grid scan-grid-scroll">
             {scanResult.products.slice(0, 100).map((p, i) => (
               <div className="product-card" key={i}>
                 <div className="product-img">
@@ -300,31 +315,33 @@ export default function StoreDetail({ storeId, onBack }: Props) {
       {/* Панель товара с графиком — открывается модалкой с похожими товарами */}
 
       {/* Поиск и переключатель вида */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+      <div className="store-toolbar">
         <input
           className="input small"
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Поиск товаров…"
-          style={{ flex: 1, maxWidth: 320 }}
         />
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className={`btn small ${view === 'grid' ? 'primary' : ''}`} onClick={() => setView('grid')}><Icon name="grid" size={14} /></button>
-          <button className={`btn small ${view === 'table' ? 'primary' : ''}`} onClick={() => setView('table')}><Icon name="list" size={14} /></button>
+        <div className="view-toggle">
+          <button className={`btn small ${effectiveView === 'grid' ? 'primary' : ''}`} onClick={() => setView('grid')} title="Сетка"><Icon name="grid" size={14} /></button>
+          <button className={`btn small ${effectiveView === 'table' ? 'primary' : ''}`} onClick={() => setView('table')} title="Таблица"><Icon name="list" size={14} /></button>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+        <span className="store-toolbar-count">
           Показано {filtered.length} из {products.length}
         </span>
       </div>
 
+      {progressText && (
+        <div className="check-progress"><Loader size={14} /><span>{progressText}</span></div>
+      )}
+
       {/* Товары */}
-      {view === 'grid' ? (
+      {effectiveView === 'grid' ? (
         <div className="products-grid">
           {filtered.map(p => (
             <div
-              className="product-card"
+              className="product-card row-clickable"
               key={p.id}
-              style={{ cursor: 'pointer' }}
               onClick={() => openProduct(p)}
             >
               <div className="product-img">
@@ -335,10 +352,9 @@ export default function StoreDetail({ storeId, onBack }: Props) {
                 <div className="product-price">{formatPrice(p.price, p.currency)}</div>
                 <div className="product-meta">
                   <span>{timeAgo(p.lastChecked)}</span>
-                  <button className="btn small" aria-label={`Редактировать ${p.name}`} title="Редактировать товар" style={{ padding: '3px 8px' }} onClick={e => { e.stopPropagation(); openProductEditor(p) }}><Icon name="pencil" size={12} /></button>
+                  <button className="btn small" aria-label={`Редактировать ${p.name}`} title="Редактировать товар" onClick={e => { e.stopPropagation(); openProductEditor(p) }}><Icon name="pencil" size={12} /></button>
                   <button
                     className="btn small danger"
-                    style={{ padding: '3px 8px' }}
                     onClick={e => { e.stopPropagation(); setPendingProductRemoval(p) }}
                   ><Icon name="close" size={12} /></button>
                 </div>
@@ -360,30 +376,32 @@ export default function StoreDetail({ storeId, onBack }: Props) {
             </thead>
             <tbody>
               {filtered.map(p => (
-                <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => openProduct(p)}>
+                <tr key={p.id} className="row-clickable" onClick={() => openProduct(p)}>
                   <td>
-                    <div style={{ fontWeight: 500, maxWidth: 400 }}>{p.name}</div>
+                    <div className="product-row-name">{p.name}</div>
                     {p.url && (
                       <a
                         href="#"
+                        className="product-row-link"
                         onClick={e => { e.stopPropagation(); p.url && window.observa.openExternal(p.url) }}
-                        style={{ fontSize: 11, color: 'var(--accent)' }}
                       >
                         Открыть на сайте <Icon name="external" size={11} />
                       </a>
                     )}
                   </td>
-                  <td style={{ fontWeight: 700, color: 'var(--accent)' }}>{formatPrice(p.price, p.currency)}</td>
-                  <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{timeAgo(p.lastChecked)}</td>
-                  <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatDate(p.createdAt)}</td>
+                  <td className="matrix-price">{formatPrice(p.price, p.currency)}</td>
+                  <td className="monitor-cell-muted">{timeAgo(p.lastChecked)}</td>
+                  <td className="monitor-cell-muted">{formatDate(p.createdAt)}</td>
                   <td>
-                    <button className="btn small" aria-label={`Редактировать ${p.name}`} title="Редактировать товар" style={{ marginRight: 6 }} onClick={e => { e.stopPropagation(); openProductEditor(p) }}><Icon name="pencil" size={12} /></button>
-                    <button className="btn small danger" aria-label={`Удалить ${p.name}`} onClick={e => { e.stopPropagation(); setPendingProductRemoval(p) }}><Icon name="close" size={12} /></button>
+                    <div className="product-actions">
+                      <button className="btn small" aria-label={`Редактировать ${p.name}`} title="Редактировать товар" onClick={e => { e.stopPropagation(); openProductEditor(p) }}><Icon name="pencil" size={12} /></button>
+                      <button className="btn small danger" aria-label={`Удалить ${p.name}`} title="Удалить товар" onClick={e => { e.stopPropagation(); setPendingProductRemoval(p) }}><Icon name="close" size={12} /></button>
+                    </div>
                   </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: 30, color: 'var(--text-secondary)' }}>
+                <tr><td colSpan={5} className="table-empty-cell">
                   {products.length === 0
                     ? 'Товаров пока нет. Нажмите «Сканировать сайт» или «Проверить цены».'
                     : 'Ничего не найдено по запросу'}
@@ -398,15 +416,15 @@ export default function StoreDetail({ storeId, onBack }: Props) {
       {similar && (
         <div className="modal-overlay" onClick={() => setSimilar(null)}>
           <div className="modal similar-modal" onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+            <div className="similar-modal-head">
               <div>
-                <h3 style={{ margin: 0 }}>{similar.product.name}</h3>
+                <h3>{similar.product.name}</h3>
                 <div className="product-price" style={{ marginTop: 6 }}>{formatPrice(similar.product.price, similar.product.currency)}</div>
               </div>
               <button className="btn small" onClick={() => setSimilar(null)}><Icon name="close" size={12} /> Закрыть</button>
             </div>
 
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+            <div className="similar-modal-status">
               {similarLoading
                 ? 'Ищем похожие предложения…'
                 : similar.result
@@ -417,6 +435,8 @@ export default function StoreDetail({ storeId, onBack }: Props) {
             {similarLoading ? (
               <div className="page-loader"><Loader size={28} /></div>
             ) : similar.result && similar.result.offers.length > 0 ? (
+              <>
+              <div className="similar-section-title">Похожие предложения на рынке</div>
               <div className="similar-grid">
                 {similar.result.offers.map(offer => (
                   <div className={`product-card similar-card ${offer.storeId === storeId ? 'similar-card-own' : ''}`} key={`${offer.storeId}:${offer.productId}`}>
@@ -440,14 +460,16 @@ export default function StoreDetail({ storeId, onBack }: Props) {
                   </div>
                 ))}
               </div>
+              </>
             ) : !similarLoading && (
-              <div className="empty-state" style={{ padding: '24px 0' }}>Похожих товаров с ценами не найдено</div>
+              <div className="empty-state compact">Похожих товаров с ценами не найдено</div>
             )}
 
             {history.length > 0 && (
-              <div style={{ marginTop: 16 }}>
+              <div className="similar-history">
+                <div className="similar-section-title">История цены этого товара</div>
                 <PriceChart data={history} />
-                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                <div className="similar-history-note">
                   Точек истории: {history.length}
                   {history.length >= 2 && (
                     <> · изменение:{' '}
