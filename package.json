@@ -1,6 +1,6 @@
 {
   "name": "observa",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "OBSERVA — система мониторинга цен конкурентов 24/7",
   "main": "electron/main.cjs",
   "scripts": {
