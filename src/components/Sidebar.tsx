@@ -94,14 +94,14 @@ export default function Sidebar({ page, onNavigate, onOpenStore }: Props) {
           <div className="nav-group-label">{group.label}</div>
           {group.items.map(item => {
             const active = page === item.id || (item.id === 'stores' && page === 'store-detail')
-            return <button key={item.id} className={`nav-item ${active ? 'active' : ''}`} onClick={() => onNavigate(item.id)} aria-current={active ? 'page' : undefined}>
+            return <button key={item.id} className={`nav-item ${active ? 'active' : ''}`} onClick={() => onNavigate(item.id)} aria-current={active ? 'page' : undefined} data-tooltip={item.label}>
               <span className="nav-icon">{item.icon}</span>{item.label}
             </button>
           })}
         </div>)}
       </nav>
 
-      <button className={`nav-item sidebar-settings-button ${page === 'settings' ? 'active' : ''}`} onClick={() => onNavigate('settings')} aria-current={page === 'settings' ? 'page' : undefined}>
+      <button className={`nav-item sidebar-settings-button ${page === 'settings' ? 'active' : ''}`} onClick={() => onNavigate('settings')} aria-current={page === 'settings' ? 'page' : undefined} data-tooltip="Настройки">
         <span className="nav-icon"><Icon name="settings" size={18} /></span><span>Настройки</span>
       </button>
 

@@ -625,6 +625,7 @@ body {
   background: var(--bg-card);
   border-radius: var(--radius);
   overflow: hidden;
+  overflow-x: auto;
 }
 
 table {
@@ -1016,18 +1017,67 @@ select option { color: var(--text); background: var(--bg-card); }
   .result-count { align-self: center; }
 }
 
-@media (max-width: 520px) {
-  :root { --sidebar-width: 62px; }
-  .sidebar { width: 62px; min-width: 62px; padding: 18px 7px; }
+/* Узкие «портретные» окна: сайдбар уходит вниз и становится доком
+   с иконками навигации, контент занимает всю ширину. */
+@media (max-width: 640px) {
+  .app-body { flex-direction: column; }
+  .sidebar {
+    order: 2;
+    width: auto;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .sidebar-brand { display: none; }
+  .nav { flex: 1; min-width: 0; flex-direction: row; gap: 2px; }
+  .nav-section { display: contents; }
   .nav-group-label { display: none; }
-  .nav-item { justify-content: center; padding: 12px 8px; font-size: 0; }
+  .nav-section + .nav-section { margin-top: 0; }
+  .nav-item {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 44px;
+    justify-content: center;
+    gap: 0;
+    padding: 10px 6px;
+    font-size: 0;
+  }
   .nav-item .nav-icon { width: auto; }
-  .sidebar-settings-button { border-top: 0; padding-top: 12px; }
-  .sidebar-own-store { justify-content: center; padding: 8px; }
+  .sidebar-settings-button { flex: 0 0 auto; margin-top: 0; padding: 10px 12px; border-top: 0; }
+  .sidebar-own-store { flex: 0 0 auto; width: auto; margin-top: 0; margin-left: auto; padding: 6px; }
   .sidebar-own-copy { display: none; }
   .dashboard-actions .badge { width: 100%; }
   .competitor-actions { width: 100%; }
   .competitor-actions .btn { flex: 1; justify-content: center; }
+}
+
+/* Узкие «портретные» окна: уплотняем отступы и переносим вторичные блоки. */
+@media (max-width: 640px) {
+  .main { padding: 16px 12px; }
+  .page-header { flex-wrap: wrap; }
+  .page-title { font-size: 20px; }
+  .analytics-toolbar { flex-wrap: wrap; }
+  .analytics-toolbar .search-box { max-width: none; flex: 1 0 100%; }
+  .analytics-currency { width: 100%; flex-basis: 100%; }
+  .source-card-header { flex-wrap: wrap; }
+  .source-card-labels { order: 3; flex: 1 1 100%; margin-left: 0; }
+  .form-row { grid-template-columns: 1fr; }
+  .monitoring-sources-heading { flex-wrap: wrap; }
+  .stats-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .offer-list { min-width: 0; }
+  .update-modal { width: min(520px, 92vw); }
+}
+
+@media (max-width: 480px) {
+  .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-stats, .market-kpi-grid { grid-template-columns: 1fr; }
+  .source-card-metrics { grid-template-columns: 1fr 1fr; }
 }
 
 .chart-container {
@@ -1327,6 +1377,8 @@ select option { color: var(--text); background: var(--bg-card); }
   white-space: nowrap;
 }
 .chart-hover-tip-row b { margin-left: auto; padding-left: 12px; color: var(--text); font-weight: 600; }
+.chart-hover-tip-sub { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line-faint); font-size: 10px; }
+.chart-hover-tip-sub .chart-hover-tip-name { max-width: none; }
 .chart-hover-tip-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
 .price-compare-legend {
   display: flex;
@@ -1344,6 +1396,7 @@ select option { color: var(--text); background: var(--bg-card); }
 }
 .price-compare-legend-item b { color: var(--text); font-weight: 600; font-size: 11px; }
 .price-compare-dot { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
+.price-compare-favicon { width: 14px; height: 14px; flex: 0 0 14px; border-radius: 50%; object-fit: cover; background: var(--bg-secondary); }
 .price-compare-name {
   max-width: 180px;
   overflow: hidden;
@@ -1402,27 +1455,6 @@ select option { color: var(--text); background: var(--bg-card); }
 .ov-position-stats .up b { color: var(--red); }
 .ov-position-stats .down b { color: var(--green); }
 
-.ovc { display: flex; flex-direction: column; }
-.ovc svg { display: block; width: 100%; max-width: 880px; height: auto; margin: 0 auto; }
-.ovc-grid { stroke: var(--border); stroke-width: 1; }
-.ovc-grid.zero { stroke: var(--border-strong); stroke-width: 1.2; }
-.ovc-axis { fill: var(--text-secondary); font-family: inherit; font-size: 9px; }
-.ovc-bar { transition: opacity .15s ease; }
-.ovc-bar:hover { opacity: .8; }
-.ovc-bar.cheapest { stroke: var(--green); stroke-width: 1.5; }
-.ovc-value { font-family: inherit; font-size: 9.5px; font-weight: 700; }
-.ovc-value.own { fill: var(--accent-hover); }
-.ovc-value.up { fill: var(--red); }
-.ovc-value.down { fill: var(--green); }
-.ovc-value.flat { fill: var(--text-secondary); }
-.ovc-name { fill: var(--text-secondary); font-family: inherit; font-size: 9px; }
-.ovc-legend { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--line-faint); color: var(--text-secondary); font-size: 10px; }
-.ovc-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.ovc-key { width: 8px; height: 8px; border-radius: 3px; }
-.ovc-key.own { background: var(--accent); }
-.ovc-key.up { background: var(--red); }
-.ovc-key.down { background: var(--green); }
-
 .ov-lower { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); gap: 18px; }
 .ov-lower .panel-heading { min-height: 76px; padding: 15px 20px; }
 
@@ -1432,7 +1464,7 @@ select option { color: var(--text); background: var(--bg-card); }
 .wc-viewport:hover .wc-track { animation-play-state: paused; }
 @keyframes wc-scroll { to { transform: translateX(-50%); } }
 .wc-group { display: flex; gap: 10px; padding-right: 10px; }
-.wc-card { display: flex; flex: 0 0 300px; align-items: center; gap: 10px; width: 300px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-secondary); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background .15s, border-color .15s; }
+.wc-card { display: flex; flex: 0 0 300px; align-items: center; gap: 10px; width: 300px; padding: 10px 12px; border: none; border-radius: var(--radius); background: var(--bg-secondary); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background .15s, border-color .15s; }
 .wc-card:hover { background: var(--bg-card-hover); border-color: var(--border-strong); }
 
 @media (max-width: 1100px) {

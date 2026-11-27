@@ -114,7 +114,8 @@ function parseStructuredData($, baseUrl) {
           const common = {
             name,
             url: normalizeUrl(node.url || node['@id'], baseUrl),
-            imageUrl: readImage(node.image || node.photo || node.logo, baseUrl)
+            imageUrl: readImage(node.image || node.photo || node.logo, baseUrl),
+            description: typeof node.description === 'string' && node.description.trim() ? node.description.trim().slice(0, 600) : null
           }
           for (const offer of offers) items.push({ ...common, ...offer, name: offer.name || common.name, url: normalizeUrl(offer.url, baseUrl) || common.url, imageUrl: readImage(offer.imageUrl, baseUrl) || common.imageUrl })
           if (!offers.length) items.push(common)
@@ -527,6 +528,7 @@ async function fetchMagapCatalog(url) {
           const match = iconByPlatform.find(({ re }) => re.test(`${item.platform || ''} ${item.title || ''}`))
           return match ? normalizeUrl(`/icons/${match.catalog ? 'catalog/' : ''}${match.icon}.png`, storefrontUrl.origin) : null
         })(),
+        description: typeof item.description === 'string' && item.description.trim() ? item.description.trim().slice(0, 600) : null,
         sourceKey: `magap:${item.sku || item.id}`
       }
     })
@@ -558,6 +560,7 @@ async function fetchMagapCatalog(url) {
           currency: normalizeCurrency(item.currency || 'RUB'),
           url,
           imageUrl: normalizeUrl(item.icon_url, storefrontUrl.origin),
+          description: typeof item.description === 'string' && item.description.trim() ? item.description.trim().slice(0, 600) : null,
           sourceKey: `magap-app:${item.id}`
         }
       })

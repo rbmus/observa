@@ -161,6 +161,7 @@ class PriceChecker {
           existing.lastChecked = now
           if (parsed.url) existing.sourceUrl = parsed.url
           if (parsed.imageUrl) existing.imageUrl = parsed.imageUrl
+          if (parsed.description) existing.description = parsed.description
           if (parsed.url && !existing.manualFields?.url) existing.url = parsed.url
           existingByName.set(parsed.sourceKey ? `source:${parsed.sourceKey}` : `name:${parsed.name.toLowerCase()}`, existing)
           updated++
@@ -172,6 +173,7 @@ class PriceChecker {
             price: parsed.price,
             currency: parsed.currency,
             imageUrl: parsed.imageUrl,
+            description: parsed.description || null,
             sourceKey: parsed.sourceKey || null
           }, { save: false })
           matchedProductIds.add(product.id)

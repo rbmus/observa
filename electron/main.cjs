@@ -7,6 +7,7 @@ const { autoUpdater } = require('electron-updater')
 const { StoreService } = require(path.join(__dirname, 'services/storeService.cjs'))
 const { PriceChecker } = require(path.join(__dirname, 'services/priceChecker.cjs'))
 const { Analyzer, cleanComparableName, normalizeMatchName, similarityCore } = require(path.join(__dirname, 'services/analyzer.cjs'))
+const { enrichProduct } = require(path.join(__dirname, 'services/enrichment.cjs'))
 
 let mainWindow = null
 let storeService = null
@@ -20,6 +21,7 @@ let analyticsSummaryCache = null
 let settingsFilePath = null
 let appSettings = null
 let splashWindow = null
+let enrichmentRunning = false
 
 // Батчим уведомления об изменениях цен: одна проверка источника может дать
 // десятки price:changed — пользователю нужна одна сводка, а не спам.
@@ -296,8 +298,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 1100,
-    minHeight: 700,
+    minWidth: 400,
+    minHeight: 560,
     backgroundColor: '#131313',
     icon: iconPath,
     show: false,
@@ -389,6 +391,57 @@ app.whenReady().then(() => {
 
   priceChecker.maxConcurrentChecks = appSettings.maxConcurrentChecks
   if (appSettings.autoStartMonitoring) priceChecker.start()
+
+  // Веб-обогащение описаний: для каждого уникального названия товара один
+  // раз в 30 дней ищем каноническое описание — analyzer использует его
+  // как дополнительный сигнал при сопоставлении похожих продуктов.
+  const ENRICH_TTL = 30 * 24 * 60 * 60 * 1000
+  const ENRICH_FAIL_TTL = 7 * 24 * 60 * 60 * 1000
+  const runProductEnrichment = async () => {
+    if (enrichmentRunning || !storeService) return
+    enrichmentRunning = true
+    try {
+      const seen = new Set()
+      const targets = []
+      for (const store of storeService.getAll()) {
+        for (const product of store.products || []) {
+          const name = String(product.name || '').trim()
+          if (name.length < 3) continue
+          const key = normalizeMatchName(cleanComparableName(name)).key
+          if (!key || seen.has(key)) continue
+          seen.add(key)
+          const cached = storeService.getEnrichment(key)
+          if (cached?.fetchedAt) {
+            const age = Date.now() - new Date(cached.fetchedAt).getTime()
+            if (cached.description ? age < ENRICH_TTL : age < ENRICH_FAIL_TTL) continue
+          }
+          targets.push({ key, name })
+          if (targets.length >= 8) break
+        }
+        if (targets.length >= 8) break
+      }
+      let changed = false
+      for (const target of targets) {
+        try {
+          const result = await enrichProduct(target.name)
+          storeService.setEnrichment(target.key, {
+            canonicalName: result?.canonicalName || null,
+            description: result?.description || null,
+            fetchedAt: new Date().toISOString()
+          })
+        } catch {
+          storeService.setEnrichment(target.key, { canonicalName: null, description: null, fetchedAt: new Date().toISOString() })
+        }
+        changed = true
+        await new Promise(resolve => setTimeout(resolve, 1200))
+      }
+      if (changed) invalidateAnalytics()
+    } finally {
+      enrichmentRunning = false
+    }
+  }
+  setTimeout(() => runProductEnrichment().catch(() => {}), 90_000)
+  setInterval(() => runProductEnrichment().catch(() => {}), 30 * 60 * 1000)
 
   createWindow()
   createTray()

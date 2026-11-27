@@ -89,6 +89,7 @@ async function fetchTelegramChannel(value) {
       return line.length >= 3
     })
     pricePattern.lastIndex = 0
+    const postDescription = normalizedLines.slice(1).join(' ').slice(0, 600) || null
 
     // Prefer the line that actually carries the price — it usually names the
     // offer. Fall back to the post headline when the price sits alone.
@@ -110,7 +111,7 @@ async function fetchTelegramChannel(value) {
       const key = `${postId}:${index}`
       if (seen.has(key)) return
       seen.add(key)
-      products.push({ name: name.slice(0, 300), price: item.price, currency: item.currency, url: permalink, imageUrl, sourceKey: `telegram:${key}` })
+      products.push({ name: name.slice(0, 300), price: item.price, currency: item.currency, url: permalink, imageUrl, description: postDescription, sourceKey: `telegram:${key}` })
     })
   })
 

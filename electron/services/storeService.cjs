@@ -49,6 +49,7 @@ class StoreService {
       }
     })
     data.priceHistory = data.priceHistory || {}
+    data.enrichments = data.enrichments && typeof data.enrichments === 'object' ? data.enrichments : {}
     data.manualMatches = Array.isArray(data.manualMatches) ? data.manualMatches : []
     data.separatedPairs = Array.isArray(data.separatedPairs) ? data.separatedPairs : []
     // GC: правила сравнения ссылаются на товары по id — после удаления
@@ -180,6 +181,7 @@ class StoreService {
       price: product.price != null ? Number(product.price) : null,
       currency: product.currency || 'RUB',
       imageUrl: product.imageUrl || null,
+      description: typeof product.description === 'string' ? product.description.slice(0, 1000) : null,
       sourceKey: product.sourceKey || null,
       manualFields: product.manualFields || {},
       category: product.category || 'general',
@@ -272,6 +274,24 @@ class StoreService {
       if (!existing.has(key)) { existing.add(key); this.data.separatedPairs.push(pair) }
     }
     this._save()
+  }
+
+  getEnrichment(key) {
+    return this.data.enrichments[key] || null
+  }
+
+  setEnrichment(key, value) {
+    this.data.enrichments[key] = value
+    const keys = Object.keys(this.data.enrichments)
+    if (keys.length > 5000) {
+      keys.sort((a, b) => String(this.data.enrichments[a]?.fetchedAt || '').localeCompare(String(this.data.enrichments[b]?.fetchedAt || '')))
+      for (const old of keys.slice(0, keys.length - 5000)) delete this.data.enrichments[old]
+    }
+    this._save()
+  }
+
+  getAllEnrichments() {
+    return this.data.enrichments
   }
 
   getProducts(storeId) {

@@ -258,8 +258,18 @@ class Analyzer {
       if (INVALID_PRODUCT_NAME.test(productName)) continue
       const matchName = normalizeMatchName(productName)
       if (!matchName.key) continue
+      // Описание из источника + каноническое описание из веб-обогащения:
+      // токены идут в отдельный индекс и позволяют объединять товары,
+      // у которых названия написаны по-разному, но описание совпадает.
+      const enrichment = this.storeService?.getEnrichment?.(matchName.key)
+      const descText = [product.description, enrichment?.description].filter(Boolean).join(' ')
+      const descMatch = descText ? normalizeMatchName(cleanComparableName(descText)) : null
+      const descTokens = descMatch
+        ? [...new Set(descMatch.tokens.filter(token => !token.startsWith('duration') && !/^\d+$/.test(token)))].slice(0, 80)
+        : []
       const candidate = {
         matchName,
+        descTokens,
         productId: product.id,
         productName,
         nameQuality: Number(originalName === productName) * 100 - Math.max(0, originalName.length - productName.length) / 100,
@@ -379,6 +389,40 @@ class Analyzer {
           if (pairScores.has(pairKey)) continue
           const score = similarity(a.matchName, b.matchName)
           if (score >= 0.4) pairScores.set(pairKey, score)
+        }
+      }
+    }
+    // Индекс по токенам описаний: ловит пары, которые не делят ни одного
+    // токена названия («PS Plus Extra» vs «PlayStation Plus Extra»), но
+    // описывают один продукт. Containment по меньшему набору токенов,
+    // с понижающим коэффициентом — описание шумнее названия.
+    const MAX_DESC_POSTING = 60
+    const descPostings = new Map()
+    for (const candidate of autoCandidates) {
+      if (!candidate.descTokens.length) continue
+      for (const token of candidate.descTokens) {
+        if (!descPostings.has(token)) descPostings.set(token, [])
+        descPostings.get(token).push(candidate)
+      }
+    }
+    for (const posting of descPostings.values()) {
+      if (posting.length < 2 || posting.length > MAX_DESC_POSTING) continue
+      for (let left = 0; left < posting.length; left++) {
+        for (let right = left + 1; right < posting.length; right++) {
+          const a = posting[left]
+          const b = posting[right]
+          if (a.storeKey === b.storeKey) continue
+          if (a.currency.toUpperCase() !== b.currency.toUpperCase()) continue
+          const minLen = Math.min(a.descTokens.length, b.descTokens.length)
+          if (minLen < 5) continue
+          let shared = 0
+          for (const token of a.descTokens) if (b.descTokens.includes(token)) shared++
+          if (shared < 4) continue
+          const descScore = (shared / minLen) * 0.9
+          if (descScore < 0.4) continue
+          const pairKey = JSON.stringify([refKey(a), refKey(b)].sort())
+          const existing = pairScores.get(pairKey) || 0
+          if (descScore > existing) pairScores.set(pairKey, descScore)
         }
       }
     }
@@ -504,7 +548,7 @@ class Analyzer {
     // Groups need offers from 2+ stores to count as a comparison — except own
     // offers, which always stay visible so nothing from our catalog is hidden.
     const priceMatrix = groups.filter(group => new Set(group.offers.map(offer => offer.storeKey)).size > 1 || group.offers.some(offer => offer.role === 'own')).map(group => {
-      const offers = group.offers.map(({ matchName, ...offer }) => offer)
+      const offers = group.offers.map(({ matchName, descTokens, ...offer }) => offer)
       const ownOffers = offers.filter(offer => offer.role === 'own').sort((a, b) => a.price - b.price)
       const competitorOffers = offers.filter(offer => offer.role === 'competitor')
       const bestCompetitor = competitorOffers.length

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Page } from '../App'
 import type { Store, MonitorStatus, AnalyticsSummary, PriceMatrixRow } from '../types'
 import { formatPrice, formatPercent, timeAgo } from '../utils/format'
+import { faviconCandidates } from '../utils/favicon'
 import { Icon } from '../components/icons'
 import Loader from '../components/Loader'
 import PricePositionChart from '../components/PricePositionChart'
@@ -69,12 +70,14 @@ export default function Dashboard({ onOpenStore, onOpenSimilar, onNavigate }: Pr
   const ownTotalGroups = storeTotals.filter(item => item.role === 'own' && item.currency === statCurrency)
   const ownTotal = ownTotalGroups.length ? ownTotalGroups.reduce((sum, item) => sum + item.total, 0) : null
   const ownOfferCount = ownTotalGroups.reduce((sum, item) => sum + item.count, 0)
+  const ownAvg = ownTotal != null && ownOfferCount ? ownTotal / ownOfferCount : null
   const compTotals = storeTotals.filter(item => item.role !== 'own' && item.currency === statCurrency)
-  const bestCompTotal = compTotals[0] || null
-  const totalDiff = ownTotal != null && bestCompTotal ? ownTotal - bestCompTotal.total : null
-  const totalDiffPct = totalDiff != null && bestCompTotal && bestCompTotal.total > 0 ? (totalDiff / bestCompTotal.total) * 100 : null
-  const cheaperTotalsCount = ownTotal != null ? compTotals.filter(item => item.total < ownTotal).length : 0
-  const cheaperTotalsShare = compTotals.length ? Math.round((cheaperTotalsCount / compTotals.length) * 100) : null
+  const compAvgs = compTotals.filter(item => item.count > 0).map(item => ({ ...item, avg: item.total / item.count }))
+  const bestCompAvg = compAvgs.length ? compAvgs.reduce((min, item) => item.avg < min.avg ? item : min) : null
+  const totalDiff = ownAvg != null && bestCompAvg ? ownAvg - bestCompAvg.avg : null
+  const totalDiffPct = totalDiff != null && bestCompAvg && bestCompAvg.avg > 0 ? (totalDiff / bestCompAvg.avg) * 100 : null
+  const cheaperTotalsCount = ownAvg != null ? compAvgs.filter(item => item.avg < ownAvg).length : 0
+  const cheaperTotalsShare = compAvgs.length ? Math.round((cheaperTotalsCount / compAvgs.length) * 100) : null
 
   const avgPriceByCurrency = useMemo(() => {
     const map = new Map<string, { sum: number; count: number }>()
@@ -90,6 +93,14 @@ export default function Dashboard({ onOpenStore, onOpenSimilar, onNavigate }: Pr
     return result
   }, [summary])
 
+  const iconByStore = useMemo(() => {
+    const map = new Map<string, string | null>()
+    for (const store of stores) {
+      map.set(store.id, store.customIcon || (store.url ? faviconCandidates(store.url)[0] || null : null))
+    }
+    return map
+  }, [stores])
+
   const positionOffers = useMemo(() => storeTotals.map(item => {
     const avgPrice = item.count ? item.total / item.count : 0
     const marketAvg = avgPriceByCurrency.get(item.currency) || avgPrice
@@ -100,9 +111,13 @@ export default function Dashboard({ onOpenStore, onOpenSimilar, onNavigate }: Pr
       role: item.role,
       price: diffPct,
       label: formatPercent(diffPct),
-      hint: `${item.storeName} · средняя ${formatPrice(avgPrice, item.currency)} · ${item.count} услуг`
+      hint: `${item.storeName} · средняя ${formatPrice(avgPrice, item.currency)} · ${item.count} услуг`,
+      iconUrl: iconByStore.get(item.storeId) || null,
+      avgPrice,
+      currency: item.currency,
+      count: item.count
     }
-  }), [storeTotals, avgPriceByCurrency])
+  }), [storeTotals, avgPriceByCurrency, iconByStore])
 
   if (loading) return <div className="page-loader"><Loader size={36} />Загрузка обзора…</div>
 
@@ -164,8 +179,8 @@ export default function Dashboard({ onOpenStore, onOpenSimilar, onNavigate }: Pr
             <div className="ov-market-body">
               <PricePositionChart offers={positionOffers} />
               <div className="ov-position-stats">
-                <div><span>Ваши предложения</span><b>{ownTotal != null ? formatPrice(ownTotal, statCurrency) : '—'}</b><small>{ownOfferCount ? `${ownOfferCount} услуг` : 'нет своих цен'}</small></div>
-                <div><span>Лучшая цена конкурента</span><b>{bestCompTotal ? formatPrice(bestCompTotal.total, statCurrency) : '—'}</b><small>{bestCompTotal?.storeName || ''}</small></div>
+                <div><span>Ваша средняя цена</span><b>{ownAvg != null ? formatPrice(ownAvg, statCurrency) : '—'}</b><small>{ownOfferCount ? `${ownOfferCount} услуг` : 'нет своих цен'}</small></div>
+                <div><span>Средняя цена конкурента</span><b>{bestCompAvg ? formatPrice(bestCompAvg.avg, statCurrency) : '—'}</b><small>{bestCompAvg?.storeName || ''}</small></div>
                 <div className={totalDiff == null ? '' : totalDiff > 0 ? 'up' : 'down'}>
                   <span>{totalDiff == null ? 'Позиция' : totalDiff > 0 ? 'Вы дороже рынка' : 'Вы не дороже рынка'}</span>
                   <b>{totalDiffPct != null ? formatPercent(Math.abs(totalDiffPct)) : '—'}</b>
