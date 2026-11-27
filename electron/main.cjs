@@ -37,6 +37,16 @@ function sendUpdateEvent(patch) {
   }
 }
 
+function normalizeReleaseNotes(notes) {
+  if (!notes) return null
+  if (typeof notes === 'string') return notes
+  if (Array.isArray(notes)) {
+    return notes.map(entry => (typeof entry === 'string' ? entry : entry?.note || '')).filter(Boolean).join('\n')
+  }
+  if (typeof notes === 'object' && typeof notes.note === 'string') return notes.note
+  return null
+}
+
 function setupAutoUpdater() {
   if (!app.isPackaged) return
   autoUpdater.autoDownload = true
