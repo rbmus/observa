@@ -235,16 +235,16 @@ export default function Monitoring() {
               const change = changeByOffer.get(`${offer.storeId}|${offer.productId}`)
               const kind = offerKind(offer.productName)
               return (
-                <tr key={`${offer.storeId}|${offer.productId}`} className="row-clickable" onClick={() => window.observa.openExternal(offer.url)} title="Открыть предложение на сайте">
+                <tr key={`${offer.storeId}|${offer.productId}`} className="row-clickable" onClick={() => window.observa.openExternal(offer.url)} data-tooltip="Открыть предложение на сайте">
                   <td>
                     <div className="market-product-cell">
                       <ProductImage imageUrl={offer.imageUrl} sourceUrl={offer.url} className="market-product-image" placeholderClassName="market-product-placeholder" placeholderIcon="tag" />
-                      <span><b>{offer.productName}</b><small>{offer.category !== 'general' ? offer.category : ''}</small></span>
+                      <span><b data-tooltip={offer.productName}>{offer.productName}</b><small>{offer.category !== 'general' ? offer.category : ''}</small></span>
                     </div>
                   </td>
                   <td><span className={`offer-kind offer-kind-${kind}`}>{KIND_LABELS[kind]}</span></td>
                   <td>
-                    <b>{offer.storeName}</b>
+                    <b data-tooltip={offer.storeName}>{offer.storeName}</b>
                     <small className="matrix-source">{offer.role === 'own' ? 'Мой магазин' : offer.sourceType === 'telegram' ? 'Telegram' : 'Конкурент'}</small>
                   </td>
                   <td className="matrix-price">{offer.price == null ? '—' : formatPrice(offer.price, offer.currency)}</td>
@@ -295,7 +295,7 @@ export default function Monitoring() {
                   </span>
                 </td>
                 <td className="monitor-cell-muted">{formatDate(s.lastSuccessCheck || (s.status === 'ok' ? s.lastCheck : null))}</td>
-                <td className="monitor-error-cell" title={s.lastError || ''}>
+                <td className="monitor-error-cell" data-tooltip={s.lastError || undefined}>
                   {s.lastError || '—'}
                 </td>
                 <td>

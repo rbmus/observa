@@ -87,7 +87,8 @@ const DEFAULT_SETTINGS = {
   startMinimized: true,
   defaultCheckIntervalMin: 60,
   maxConcurrentChecks: 3,
-  notifyPriceChanges: true
+  notifyPriceChanges: true,
+  ownStoreFavicon: null
 }
 
 function normalizeSettings(value = {}) {
@@ -100,7 +101,8 @@ function normalizeSettings(value = {}) {
     startMinimized: value.startMinimized !== false,
     defaultCheckIntervalMin: validIntervals.has(Number(value.defaultCheckIntervalMin)) ? Number(value.defaultCheckIntervalMin) : DEFAULT_SETTINGS.defaultCheckIntervalMin,
     maxConcurrentChecks: Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 8 ? concurrency : DEFAULT_SETTINGS.maxConcurrentChecks,
-    notifyPriceChanges: value.notifyPriceChanges !== false
+    notifyPriceChanges: value.notifyPriceChanges !== false,
+    ownStoreFavicon: typeof value.ownStoreFavicon === 'string' && value.ownStoreFavicon.startsWith('data:image/') ? value.ownStoreFavicon : null
   }
 }
 
@@ -299,7 +301,7 @@ function createWindow() {
     backgroundColor: '#131313',
     icon: iconPath,
     show: false,
-    frame: !isMac,
+    frame: false,
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     title: 'OBSERVA',
     webPreferences: {
@@ -407,7 +409,13 @@ app.on('before-quit', () => { isQuitting = true })
 ipcMain.handle('stores:list', () => storeService.getAll())
 ipcMain.handle('stores:get', (_, id) => storeService.getById(id))
 ipcMain.handle('stores:add', (_, store) => { const result = storeService.add(store); invalidateAnalytics(); return result })
-ipcMain.handle('stores:update', (_, id, patch) => { const result = storeService.update(id, patch); invalidateAnalytics(); return result })
+ipcMain.handle('stores:update', (_, id, patch) => {
+  if (patch && typeof patch === 'object' && 'customIcon' in patch) {
+    const value = patch.customIcon
+    patch = { ...patch, customIcon: typeof value === 'string' && value.startsWith('data:image/') && value.length <= 500_000 ? value : null }
+  }
+  const result = storeService.update(id, patch); invalidateAnalytics(); return result
+})
 ipcMain.handle('stores:remove', (_, id) => { const result = storeService.remove(id); invalidateAnalytics(); return result })
 ipcMain.handle('stores:addProduct', (_, storeId, product) => { const result = storeService.addProduct(storeId, product); invalidateAnalytics(); return result })
 ipcMain.handle('stores:removeProduct', (_, storeId, productId) => { const result = storeService.removeProduct(storeId, productId); invalidateAnalytics(); return result })
@@ -525,6 +533,12 @@ ipcMain.handle('monitor:fetchPage', async (_, url, sourceType = 'website', store
   return fetchAndParse(parseWebUrl(url), reportProgress)
 })
 ipcMain.handle('monitor:openExternal', (_, url) => shell.openExternal(parseWebUrl(url)))
+ipcMain.handle('favicon:resolve', async (_, url) => {
+  try {
+    const { resolveFavicon } = require(path.join(__dirname, 'services/favicon.cjs'))
+    return await resolveFavicon(parseWebUrl(url))
+  } catch { return [] }
+})
 
 // ---------- IPC: обновления ----------
 ipcMain.handle('app:version', () => app.getVersion())
@@ -555,7 +569,7 @@ ipcMain.handle('window:close', () => mainWindow?.close())
 ipcMain.handle('settings:get', () => appSettings)
 ipcMain.handle('settings:update', (_, patch) => {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('Некорректные настройки')
-  const allowed = ['autoStartMonitoring', 'closeToTray', 'launchAtLogin', 'startMinimized', 'defaultCheckIntervalMin', 'maxConcurrentChecks']
+  const allowed = ['autoStartMonitoring', 'closeToTray', 'launchAtLogin', 'startMinimized', 'defaultCheckIntervalMin', 'maxConcurrentChecks', 'ownStoreFavicon']
   const safePatch = Object.fromEntries(Object.entries(patch).filter(([key]) => allowed.includes(key)))
   return saveSettings(safePatch)
 })

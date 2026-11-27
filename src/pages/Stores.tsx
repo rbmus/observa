@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { Store, SourceSetupItem, SourceSetupPreview } from '../types'
 import { timeAgo } from '../utils/format'
 import { Icon } from '../components/icons'
@@ -6,6 +6,8 @@ import Checkbox from '../components/Checkbox'
 import Loader from '../components/Loader'
 import FeedbackModal from '../components/FeedbackModal'
 import { useEscapeKey } from '../utils/useEscapeKey'
+import { imageFileToDataUrl } from '../utils/favicon'
+import StoreIcon from '../components/StoreIcon'
 
 interface Props {
   onOpenStore: (id: string) => void
@@ -21,19 +23,6 @@ interface FormState {
 }
 
 const EMPTY_FORM: FormState = { name: '', url: '', category: 'general', checkIntervalMin: 60, role: 'competitor', sourceType: 'website' }
-
-function StoreFavicon({ url }: { url: string }) {
-  const [stage, setStage] = useState(0)
-  useEffect(() => setStage(0), [url])
-  let host = ''
-  let origin = ''
-  try { const parsed = new URL(url); host = parsed.hostname; origin = parsed.origin } catch { /* use initials below */ }
-  if (stage >= 2 || !host) return <span className="store-favicon fallback" aria-hidden="true">{host.slice(0, 1).toUpperCase() || '↗'}</span>
-  const src = stage === 0
-    ? `${origin}/favicon.ico`
-    : `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
-  return <img className="store-favicon" src={src} alt="" onError={() => setStage(current => Math.min(current + 1, 2))} />
-}
 
 export default function Stores({ onOpenStore }: Props) {
   const [stores, setStores] = useState<Store[]>([])
@@ -52,6 +41,8 @@ export default function Stores({ onOpenStore }: Props) {
   const [pendingRemoval, setPendingRemoval] = useState<{ id: string; name: string } | null>(null)
   const [removing, setRemoving] = useState(false)
   const [defaultInterval, setDefaultInterval] = useState(60)
+  const [iconEditId, setIconEditId] = useState<string | null>(null)
+  const iconFileRef = useRef<HTMLInputElement>(null)
 
   const refresh = () => {
     window.observa.storesList().then(s => {
@@ -131,6 +122,35 @@ export default function Stores({ onOpenStore }: Props) {
     } catch (e: any) {
       refresh()
       setSetupError(e.message || 'Не удалось сохранить режим мониторинга')
+    }
+  }
+
+  const pickStoreIcon = (id: string) => {
+    setIconEditId(id)
+    iconFileRef.current?.click()
+  }
+
+  const onIconFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    const id = iconEditId
+    setIconEditId(null)
+    if (!file || !id) return
+    try {
+      const customIcon = await imageFileToDataUrl(file)
+      await window.observa.storesUpdate(id, { customIcon })
+      refresh()
+    } catch (e: any) {
+      setSetupError(e.message || 'Не удалось сохранить значок')
+    }
+  }
+
+  const clearStoreIcon = async (s: Store) => {
+    try {
+      await window.observa.storesUpdate(s.id, { customIcon: null })
+      refresh()
+    } catch (e: any) {
+      setSetupError(e.message || 'Не удалось убрать значок')
     }
   }
 
@@ -277,13 +297,17 @@ export default function Stores({ onOpenStore }: Props) {
         <div className="source-grid">
           {visibleStores.map(s => <article className="source-card dashboard-panel" key={s.id}>
             <div className="source-card-header">
+              <span className="store-favicon-wrap">
+                <StoreIcon url={s.url} name={s.name} customIcon={s.customIcon} />
+                <button className="store-favicon-edit" data-tooltip={s.customIcon ? 'Заменить свой значок' : 'Задать свой значок, если фавикон не найден'} aria-label={`Значок для ${s.name}`} onClick={() => pickStoreIcon(s.id)}><Icon name="pencil" size={8} /></button>
+                {s.customIcon && <button className="store-favicon-edit reset" data-tooltip="Убрать свой значок" aria-label={`Убрать значок ${s.name}`} onClick={() => clearStoreIcon(s)}><Icon name="close" size={8} /></button>}
+              </span>
               <button className="source-card-open" onClick={() => onOpenStore(s.id)}>
-                <StoreFavicon url={s.url} />
-                <span className="source-card-title">{s.name}</span>
+                <span className="source-card-title" data-tooltip={s.name}>{s.name}</span>
               </button>
-              <button className="btn small danger" title="Удалить источник" aria-label={`Удалить ${s.name}`} onClick={() => setPendingRemoval({ id: s.id, name: s.name })}><Icon name="close" size={12} /></button>
+              <button className="btn small danger" data-tooltip="Удалить источник" aria-label={`Удалить ${s.name}`} onClick={() => setPendingRemoval({ id: s.id, name: s.name })}><Icon name="close" size={12} /></button>
             </div>
-            <div className="source-card-url">{s.url}</div>
+            <div className="source-card-url" data-tooltip={s.url}>{s.url}</div>
             <div className="source-card-labels">
               <span className={`source-role ${s.role === 'own' ? 'own' : ''}`}>{s.role === 'own' ? 'Мой магазин' : 'Конкурент'}</span>
               {s.sourceType === 'telegram' && <span className="source-role">Telegram</span>}
@@ -301,6 +325,8 @@ export default function Stores({ onOpenStore }: Props) {
         </div>
         </>
       )}
+
+      <input ref={iconFileRef} type="file" accept="image/*" hidden onChange={onIconFile} />
 
       {/* Модалка добавления */}
       {showModal && (

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { Store, Product, PricePoint, ParsedPage, SimilarProductsResult } from '../types'
-import { formatPrice, formatPercent, formatDate, timeAgo } from '../utils/format'
-import PriceChart from '../components/PriceChart'
+import type { Store, Product, ParsedPage } from '../types'
+import { formatPrice, formatDate, timeAgo } from '../utils/format'
 import { Icon } from '../components/icons'
 import Loader from '../components/Loader'
 import Checkbox from '../components/Checkbox'
@@ -12,13 +11,12 @@ import { useEscapeKey } from '../utils/useEscapeKey'
 interface Props {
   storeId: string
   onBack: () => void
+  onOpenSimilar: (storeId: string, productId: string) => void
 }
 
-export default function StoreDetail({ storeId, onBack }: Props) {
+export default function StoreDetail({ storeId, onBack, onOpenSimilar }: Props) {
   const [store, setStore] = useState<Store | null>(null)
   const [products, setProducts] = useState<Product[]>([])
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [history, setHistory] = useState<PricePoint[]>([])
   const [checking, setChecking] = useState(false)
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -34,8 +32,6 @@ export default function StoreDetail({ storeId, onBack }: Props) {
   const [notice, setNotice] = useState<{ title: string; message: string } | null>(null)
   const [pendingProductRemoval, setPendingProductRemoval] = useState<Product | null>(null)
   const [removingProduct, setRemovingProduct] = useState(false)
-  const [similar, setSimilar] = useState<{ product: Product; result: SimilarProductsResult | null } | null>(null)
-  const [similarLoading, setSimilarLoading] = useState(false)
 
   const refresh = () => {
     window.observa.storesGet(storeId).then(s => {
@@ -51,7 +47,6 @@ export default function StoreDetail({ storeId, onBack }: Props) {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
         refresh()
-        if (selectedProduct) window.observa.monitorHistory(storeId, selectedProduct.id).then(setHistory)
       }, 250)
     })
     const unsubscribeMonitor = window.observa.onMonitorEvent(event => {
@@ -64,29 +59,7 @@ export default function StoreDetail({ storeId, onBack }: Props) {
       }
     })
     return () => { window.clearTimeout(timer); unsubscribe(); unsubscribeMonitor() }
-  }, [storeId, selectedProduct?.id])
-
-  useEffect(() => {
-    if (selectedProduct) {
-      window.observa.monitorHistory(storeId, selectedProduct.id).then(setHistory)
-    }
-  }, [selectedProduct])
-
-  const openProduct = async (product: Product) => {
-    setSelectedProduct(product)
-    setSimilar({ product, result: null })
-    setSimilarLoading(true)
-    try {
-      const result = await window.observa.analyticsSimilarProducts(storeId, product.id)
-      setSimilar(current => current && current.product.id === product.id ? { product, result } : current)
-    } catch {
-      setSimilar(current => current && current.product.id === product.id
-        ? { product, result: { productName: product.name, currency: product.currency || 'RUB', offers: [] } }
-        : current)
-    } finally {
-      setSimilarLoading(false)
-    }
-  }
+  }, [storeId])
 
   const checkNow = async () => {
     setChecking(true)
@@ -162,7 +135,6 @@ export default function StoreDetail({ storeId, onBack }: Props) {
         manualFields: { name: editForm.lockName, url: editForm.lockUrl, price: editForm.lockPrice }
       })
       if (updated) {
-        if (selectedProduct?.id === updated.id) setSelectedProduct(updated)
         setEditingProduct(null)
         refresh()
       }
@@ -178,7 +150,6 @@ export default function StoreDetail({ storeId, onBack }: Props) {
     setRemovingProduct(true)
     try {
       await window.observa.storesRemoveProduct(storeId, pendingProductRemoval.id)
-      if (selectedProduct?.id === pendingProductRemoval.id) setSelectedProduct(null)
       setPendingProductRemoval(null)
       refresh()
     } catch (e: any) {
@@ -219,7 +190,6 @@ export default function StoreDetail({ storeId, onBack }: Props) {
     done: 'Готово'
   }[progress.phase] || 'Выполняется…') : null
 
-  useEscapeKey(Boolean(similar), () => setSimilar(null))
   useEscapeKey(showAddProduct, () => setShowAddProduct(false))
   useEscapeKey(Boolean(editingProduct) && !editProductBusy, () => setEditingProduct(null))
 
@@ -323,8 +293,8 @@ export default function StoreDetail({ storeId, onBack }: Props) {
           placeholder="Поиск товаров…"
         />
         <div className="view-toggle">
-          <button className={`btn small ${effectiveView === 'grid' ? 'primary' : ''}`} onClick={() => setView('grid')} title="Сетка"><Icon name="grid" size={14} /></button>
-          <button className={`btn small ${effectiveView === 'table' ? 'primary' : ''}`} onClick={() => setView('table')} title="Таблица"><Icon name="list" size={14} /></button>
+          <button className={`btn small ${effectiveView === 'grid' ? 'primary' : ''}`} onClick={() => setView('grid')} data-tooltip="Сетка"><Icon name="grid" size={14} /></button>
+          <button className={`btn small ${effectiveView === 'table' ? 'primary' : ''}`} onClick={() => setView('table')} data-tooltip="Таблица"><Icon name="list" size={14} /></button>
         </div>
         <span className="store-toolbar-count">
           Показано {filtered.length} из {products.length}
@@ -342,19 +312,21 @@ export default function StoreDetail({ storeId, onBack }: Props) {
             <div
               className="product-card row-clickable"
               key={p.id}
-              onClick={() => openProduct(p)}
+              onClick={() => onOpenSimilar(storeId, p.id)}
             >
               <div className="product-img">
                 <ProductImage imageUrl={p.imageUrl} sourceUrl={p.sourceUrl || p.url || store?.url} className="product-image" />
               </div>
               <div className="product-body">
-                <div className="product-name">{p.name}</div>
+                <div className="product-name" data-tooltip={p.name}>{p.name}</div>
                 <div className="product-price">{formatPrice(p.price, p.currency)}</div>
                 <div className="product-meta">
                   <span>{timeAgo(p.lastChecked)}</span>
-                  <button className="btn small" aria-label={`Редактировать ${p.name}`} title="Редактировать товар" onClick={e => { e.stopPropagation(); openProductEditor(p) }}><Icon name="pencil" size={12} /></button>
+                  <button className="btn small" aria-label={`Редактировать ${p.name}`} data-tooltip="Редактировать товар" onClick={e => { e.stopPropagation(); openProductEditor(p) }}><Icon name="pencil" size={12} /></button>
                   <button
                     className="btn small danger"
+                    aria-label={`Удалить ${p.name}`}
+                    data-tooltip="Удалить товар"
                     onClick={e => { e.stopPropagation(); setPendingProductRemoval(p) }}
                   ><Icon name="close" size={12} /></button>
                 </div>
@@ -376,9 +348,9 @@ export default function StoreDetail({ storeId, onBack }: Props) {
             </thead>
             <tbody>
               {filtered.map(p => (
-                <tr key={p.id} className="row-clickable" onClick={() => openProduct(p)}>
+                <tr key={p.id} className="row-clickable" onClick={() => onOpenSimilar(storeId, p.id)}>
                   <td>
-                    <div className="product-row-name">{p.name}</div>
+                    <div className="product-row-name" data-tooltip={p.name}>{p.name}</div>
                     {p.url && (
                       <a
                         href="#"
@@ -394,8 +366,8 @@ export default function StoreDetail({ storeId, onBack }: Props) {
                   <td className="monitor-cell-muted">{formatDate(p.createdAt)}</td>
                   <td>
                     <div className="product-actions">
-                      <button className="btn small" aria-label={`Редактировать ${p.name}`} title="Редактировать товар" onClick={e => { e.stopPropagation(); openProductEditor(p) }}><Icon name="pencil" size={12} /></button>
-                      <button className="btn small danger" aria-label={`Удалить ${p.name}`} title="Удалить товар" onClick={e => { e.stopPropagation(); setPendingProductRemoval(p) }}><Icon name="close" size={12} /></button>
+                      <button className="btn small" aria-label={`Редактировать ${p.name}`} data-tooltip="Редактировать товар" onClick={e => { e.stopPropagation(); openProductEditor(p) }}><Icon name="pencil" size={12} /></button>
+                      <button className="btn small danger" aria-label={`Удалить ${p.name}`} data-tooltip="Удалить товар" onClick={e => { e.stopPropagation(); setPendingProductRemoval(p) }}><Icon name="close" size={12} /></button>
                     </div>
                   </td>
                 </tr>
@@ -409,79 +381,6 @@ export default function StoreDetail({ storeId, onBack }: Props) {
               )}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* Модалка похожих товаров */}
-      {similar && (
-        <div className="modal-overlay" onClick={() => setSimilar(null)}>
-          <div className="modal similar-modal" onClick={e => e.stopPropagation()}>
-            <div className="similar-modal-head">
-              <div>
-                <h3>{similar.product.name}</h3>
-                <div className="product-price" style={{ marginTop: 6 }}>{formatPrice(similar.product.price, similar.product.currency)}</div>
-              </div>
-              <button className="btn small" onClick={() => setSimilar(null)}><Icon name="close" size={12} /> Закрыть</button>
-            </div>
-
-            <div className="similar-modal-status">
-              {similarLoading
-                ? 'Ищем похожие предложения…'
-                : similar.result
-                  ? `Найдено предложений: ${similar.result.offers.length}${similar.result.offers.length ? ' — цены по всем источникам' : ''}`
-                  : ''}
-            </div>
-
-            {similarLoading ? (
-              <div className="page-loader"><Loader size={28} /></div>
-            ) : similar.result && similar.result.offers.length > 0 ? (
-              <>
-              <div className="similar-section-title">Похожие предложения на рынке</div>
-              <div className="similar-grid">
-                {similar.result.offers.map(offer => (
-                  <div className={`product-card similar-card ${offer.storeId === storeId ? 'similar-card-own' : ''}`} key={`${offer.storeId}:${offer.productId}`}>
-                    <div className="product-img">
-                      <ProductImage imageUrl={offer.imageUrl} sourceUrl={offer.url || store?.url} className="product-image" />
-                    </div>
-                    <div className="product-body">
-                      <div className="product-name" title={offer.productName}>{offer.productName}</div>
-                      <div className="similar-store">{offer.role === 'own' ? '★ ' : ''}{offer.storeName}</div>
-                      <div className="product-price">{formatPrice(offer.price, offer.currency)}</div>
-                      {offer.url && (
-                        <a
-                          href="#"
-                          className="similar-link"
-                          onClick={e => { e.preventDefault(); e.stopPropagation(); window.observa.openExternal(offer.url!) }}
-                        >
-                          Открыть <Icon name="external" size={11} />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              </>
-            ) : !similarLoading && (
-              <div className="empty-state compact">Похожих товаров с ценами не найдено</div>
-            )}
-
-            {history.length > 0 && (
-              <div className="similar-history">
-                <div className="similar-section-title">История цены этого товара</div>
-                <PriceChart data={history} />
-                <div className="similar-history-note">
-                  Точек истории: {history.length}
-                  {history.length >= 2 && (
-                    <> · изменение:{' '}
-                      <span className={history[history.length - 1].price > history[0].price ? 'price-up' : 'price-down'}>
-                        {formatPercent(((history[history.length - 1].price - history[0].price) / history[0].price) * 100)}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       )}
 

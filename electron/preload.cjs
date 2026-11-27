@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('observa', {
   monitorProducts: (storeId) => ipcRenderer.invoke('monitor:products', storeId),
   monitorFetchPage: (url, sourceType, storeId) => ipcRenderer.invoke('monitor:fetchPage', url, sourceType, storeId),
   openExternal: (url) => ipcRenderer.invoke('monitor:openExternal', url),
+  faviconResolve: (url) => ipcRenderer.invoke('favicon:resolve', url),
   onMonitorEvent: (cb) => {
     const listener = (_, data) => cb(data)
     ipcRenderer.on('monitor:event', listener)

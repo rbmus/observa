@@ -8,6 +8,8 @@ import Analytics from './pages/Analytics'
 import Monitoring from './pages/Monitoring'
 import Settings from './pages/Settings'
 import Toasts, { type Toast } from './components/Toasts'
+import SimilarProductsModal from './components/SimilarProductsModal'
+import GlobalTooltip from './components/GlobalTooltip'
 import { formatPrice } from './utils/format'
 import type { AnalyticsFocus, MonitorEvent } from './types'
 
@@ -16,6 +18,7 @@ export type Page = 'dashboard' | 'analytics' | 'monitoring' | 'stores' | 'store-
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard')
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null)
+  const [similarTarget, setSimilarTarget] = useState<{ storeId: string; productId: string } | null>(null)
   const [analyticsFocus, setAnalyticsFocus] = useState<AnalyticsFocus | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
@@ -75,6 +78,10 @@ export default function App() {
     setPage('store-detail')
   }
 
+  const openSimilar = (storeId: string, productId: string) => {
+    setSimilarTarget({ storeId, productId })
+  }
+
   const navigate = (p: Page, focus?: AnalyticsFocus | null) => {
     if (p === 'store-detail') return
     setPage(p)
@@ -89,10 +96,10 @@ export default function App() {
       <div className="app-body">
         <Sidebar page={page} onNavigate={navigate} />
         <main className="main">
-          {page === 'dashboard' && <Dashboard onOpenStore={openStore} onNavigate={navigate} />}
+          {page === 'dashboard' && <Dashboard onOpenStore={openStore} onOpenSimilar={openSimilar} onNavigate={navigate} />}
           {page === 'stores' && <Stores onOpenStore={openStore} />}
           {page === 'store-detail' && selectedStoreId && (
-            <StoreDetail storeId={selectedStoreId} onBack={() => setPage('stores')} />
+            <StoreDetail storeId={selectedStoreId} onOpenSimilar={openSimilar} onBack={() => setPage('stores')} />
           )}
           {page === 'analytics' && <Analytics onOpenCompetitors={() => navigate('stores')} focus={analyticsFocus} />}
           {page === 'monitoring' && <Monitoring />}
@@ -100,6 +107,8 @@ export default function App() {
         </main>
       </div>
       <Toasts toasts={toasts} onDismiss={dismissToast} />
+      {similarTarget && <SimilarProductsModal storeId={similarTarget.storeId} productId={similarTarget.productId} onClose={() => setSimilarTarget(null)} />}
+      <GlobalTooltip />
     </div>
   )
 }

@@ -249,8 +249,8 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
         <div className="table-wrap price-matrix-wrap"><table className="match-review-table"><thead><tr><th></th><th>Услуга / тариф</th><th>Предложения</th><th>Уверенность</th><th>Решение</th></tr></thead><tbody>
           {reviewEntries.map(entry => <tr key={entry.key}>
             <td><Checkbox checked={selectedReviewKeys.includes(entry.key)} onChange={checked => setSelectedReviewKeys(current => checked ? [...current, entry.key] : current.filter(key => key !== entry.key))} label="Выбрать для объединения" /></td>
-            <td><b>{entry.productName}</b>{entry.manual && <small className="matrix-source">Закреплено вручную</small>}</td>
-            <td><div className="offer-list">{entry.offers.map(offer => <span key={`${offer.storeId}-${offer.productId}`}><b>{offer.storeName}</b> {offer.price == null ? 'Нет цены' : formatPrice(offer.price, offer.currency)}<small>{offer.productName}</small></span>)}</div></td>
+            <td><b data-tooltip={entry.productName}>{entry.productName}</b>{entry.manual && <small className="matrix-source">Закреплено вручную</small>}</td>
+            <td><div className="offer-list">{entry.offers.map(offer => <span key={`${offer.storeId}-${offer.productId}`}><b data-tooltip={offer.storeName}>{offer.storeName}</b> {offer.price == null ? 'Нет цены' : formatPrice(offer.price, offer.currency)}<small data-tooltip={offer.productName}>{offer.productName}</small></span>)}</div></td>
             <td>{entry.manual ? 'Ручное' : entry.confidence ? `${Math.round(entry.confidence * 100)}%` : 'Не сопоставлено'}</td>
             <td>{entry.offers.length > 1 && <button className="btn small" onClick={() => splitMatch(entry.offers)} disabled={savingMatch}>Разделить</button>}</td>
           </tr>)}
@@ -268,7 +268,7 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
               const lowerAtOwn = row.difference != null && row.difference <= 0
               return (
                 <tr key={`${row.productName}-${row.currency}-${index}`}>
-                  <td><b>{row.productName}</b><small className="matrix-currency">{row.currency}</small>{row.matchedNames.length > 1 && <small className="matrix-matched-names">{row.matchConfidence < 0.8 ? 'Похожее совпадение: ' : 'Варианты названия: '}{row.matchedNames.join(' · ')}</small>}</td>
+                  <td><b data-tooltip={row.productName}>{row.productName}</b><small className="matrix-currency">{row.currency}</small>{row.matchedNames.length > 1 && <small className="matrix-matched-names">{row.matchConfidence < 0.8 ? 'Похожее совпадение: ' : 'Варианты названия: '}{row.matchedNames.join(' · ')}</small>}</td>
                   <td>{own?.storeName || '—'}</td>
                   <td className="matrix-price">{own ? formatPrice(own.price, own.currency) : '—'}</td>
                   <td>{best?.storeName || '—'}{best?.sourceType === 'telegram' && <small className="matrix-source">Telegram</small>}</td>
@@ -276,7 +276,7 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
                   <td className={row.difference == null ? '' : lowerAtOwn ? 'price-down' : 'price-up'}>
                     {row.difference == null ? '—' : <>{formatPrice(row.difference, row.currency)}<small className="matrix-delta">{formatPercent(row.differencePercent)}</small></>}
                   </td>
-                  <td><div className="offer-list">{visibleOffers(row).map(offer => <span key={`${offer.storeId}-${offer.productId}`}><b>{offer.storeName}</b> {formatPrice(offer.price, offer.currency)}<small>{offer.productName}{offer.sourceType === 'telegram' ? ' · Telegram' : ''}</small></span>)}</div></td>
+                  <td><div className="offer-list">{visibleOffers(row).map(offer => <span key={`${offer.storeId}-${offer.productId}`}><b data-tooltip={offer.storeName}>{offer.storeName}</b> {formatPrice(offer.price, offer.currency)}<small data-tooltip={offer.productName}>{offer.productName}{offer.sourceType === 'telegram' ? ' · Telegram' : ''}</small></span>)}</div></td>
                 </tr>
               )
             })}
@@ -285,8 +285,8 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
         </table>
       </div> : <div className="table-wrap price-matrix-wrap"><table className="market-offers-table"><thead><tr><th>Товар или услуга</th><th>Источник</th><th>Роль</th><th>Цена</th><th>Обновлено</th></tr></thead><tbody>
         {filteredOffers.map((offer, index) => <tr key={`${offer.storeId}-${offer.productId}-${index}`}>
-          <td><div className="market-product-cell"><ProductImage imageUrl={offer.imageUrl} sourceUrl={offer.url} className="market-product-image" placeholderClassName="market-product-placeholder" placeholderIcon="tag" /><span><b>{offer.productName}</b><small>{offer.category}</small></span></div></td>
-          <td><b>{offer.storeName}</b><small className="matrix-source">{offer.sourceType === 'telegram' ? 'Telegram' : sourceHost(offer.url)}</small></td>
+          <td><div className="market-product-cell"><ProductImage imageUrl={offer.imageUrl} sourceUrl={offer.url} className="market-product-image" placeholderClassName="market-product-placeholder" placeholderIcon="tag" /><span><b data-tooltip={offer.productName}>{offer.productName}</b><small>{offer.category}</small></span></div></td>
+          <td><b data-tooltip={offer.storeName}>{offer.storeName}</b><small className="matrix-source">{offer.sourceType === 'telegram' ? 'Telegram' : sourceHost(offer.url)}</small></td>
           <td>{offer.role === 'own' ? 'Мой магазин' : 'Конкурент'}</td>
           <td className="matrix-price">{offer.price == null ? 'Нет цены' : formatPrice(offer.price, offer.currency)}</td>
           <td>{offerIsStale(offer, now) && <small className="stale-price-badge">Устарела</small>}{offer.lastChecked ? new Date(offer.lastChecked).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Нет успешных данных'}</td>

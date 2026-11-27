@@ -28,6 +28,7 @@ export interface Store {
   status: 'idle' | 'checking' | 'ok' | 'error'
   lastError: string | null
   pageTitle?: string
+  customIcon?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -72,6 +73,7 @@ export interface AppSettings {
   defaultCheckIntervalMin: number
   maxConcurrentChecks: number
   notifyPriceChanges: boolean
+  ownStoreFavicon: string | null
 }
 
 export interface AnalyticsFocus {
@@ -243,6 +245,7 @@ declare global {
       monitorProducts: (storeId: string) => Promise<Product[]>
       monitorFetchPage: (url: string, sourceType?: Store['sourceType'], storeId?: string) => Promise<ParsedPage>
       openExternal: (url: string) => Promise<void>
+      faviconResolve: (url: string) => Promise<string[]>
       onMonitorEvent: (cb: (data: MonitorEvent) => void) => () => void
       onAppNavigate: (cb: (page: 'dashboard' | 'analytics' | 'monitoring' | 'stores' | 'settings') => void) => () => void
       onDataChanged: (cb: () => void) => () => void

@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { PricePoint } from '../types'
 import { formatPrice } from '../utils/format'
+import { smoothAreaPath, smoothLinePath } from '../utils/chartPath'
 
 interface Props {
   data: PricePoint[]
@@ -42,8 +43,9 @@ export default function PriceChart({ data, width = 720, height = 240, currency }
       const point = xy[Math.round(index * (xy.length - 1) / Math.max(1, xCount - 1))]
       return { x: point.x, time: point.time }
     })
-    const line = xy.map((point, index) => `${index ? 'L' : 'M'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ')
-    return { points: xy, yTicks, xTicks, line, area: `${line} L ${xy[xy.length - 1].x} ${top + plotHeight} L ${xy[0].x} ${top + plotHeight} Z`, min, max, left, right, top, bottom, plotWidth, plotHeight }
+    const baseY = top + plotHeight
+    const line = smoothLinePath(xy)
+    return { points: xy, yTicks, xTicks, line, area: smoothAreaPath(xy, baseY), min, max, left, right, top, bottom, plotWidth, plotHeight }
   }, [data, width, height])
 
   if (!chart) return <div className="chart-empty">График появится после накопления двух изменений цены.</div>
@@ -60,8 +62,12 @@ export default function PriceChart({ data, width = 720, height = 240, currency }
         {chart.yTicks.map((tick, index) => <g key={`y-${index}`}><line x1={chart.left} x2={width - chart.right} y1={tick.y} y2={tick.y} className="chart-gridline" /><text x={chart.left - 9} y={tick.y + 4} textAnchor="end" className="chart-axis-label">{Math.round(tick.value).toLocaleString('ru-RU')}</text></g>)}
         {chart.xTicks.map((tick, index) => <text key={`x-${index}`} x={tick.x} y={height - 9} textAnchor={index === 0 ? 'start' : index === chart.xTicks.length - 1 ? 'end' : 'middle'} className="chart-axis-label">{new Date(tick.time).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</text>)}
         <path d={chart.area} fill="url(#price-area-fill)" />
-        <path d={chart.line} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-        {chart.points.map((point, index) => <circle key={`${point.timestamp}-${index}`} cx={point.x} cy={point.y} r="3.5" fill={stroke} stroke="var(--surface)" strokeWidth="2"><title>{`${new Date(point.time).toLocaleString('ru-RU')} · ${formatPrice(point.price, point.currency || latestCurrency)}`}</title></circle>)}
+        <path d={chart.line} fill="none" stroke={stroke} strokeWidth="7" strokeLinecap="round" opacity="0.14" />
+        <path d={chart.line} fill="none" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
+        {chart.points.map((point, index) => {
+          const isLast = index === chart.points.length - 1
+          return <circle key={`${point.timestamp}-${index}`} cx={point.x} cy={point.y} r={isLast ? 5 : 3} fill={stroke} stroke="var(--bg-card)" strokeWidth={isLast ? 2.5 : 1.5}><title>{`${new Date(point.time).toLocaleString('ru-RU')} · ${formatPrice(point.price, point.currency || latestCurrency)}`}</title></circle>
+        })}
       </svg>
     </div>
   )

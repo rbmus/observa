@@ -1,33 +1,45 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import type { Page } from '../App'
-import type { AnalyticsSummary, AnalyticsFocus, MarketOffer, PriceOffer } from '../types'
-import { formatPrice, formatPercent, timeAgo } from '../utils/format'
+import type { AnalyticsFocus, Store } from '../types'
+import { formatPercent } from '../utils/format'
+import { imageFileToDataUrl } from '../utils/favicon'
+import StoreIcon from './StoreIcon'
 import { Icon } from './icons'
 import Logo from './Logo'
 
 interface Props { page: Page; onNavigate: (p: Page, focus?: AnalyticsFocus | null) => void }
 
-const icon = (children: ReactNode) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+const fillIcon = (children: ReactNode) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">{children}</svg>
 )
 
 const GROUPS: { label: string; items: { id: Page; label: string; icon: ReactNode }[] }[] = [
   { label: 'АНАЛИЗ', items: [
-    { id: 'dashboard', label: 'Обзор', icon: icon(<><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>) },
-    { id: 'analytics', label: 'Сравнения цен', icon: icon(<><path d="M4 20V10" /><path d="M10 20V4" /><path d="M16 20v-7" /><path d="M22 20H2" /></>) }
+    { id: 'dashboard', label: 'Обзор', icon: fillIcon(<path d="M2 11h11a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2m0-9h11v7H2zm20-2h-3a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2m0 9h-3V2h3zM5 13H2a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2m0 9H2v-7h3zm17-9H11a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2m0 9H11v-7h11z" />) },
+    { id: 'analytics', label: 'Сравнения цен', icon: fillIcon(<><path d="M23 22H3a1 1 0 0 1-1-1V1a1 1 0 0 0-2 0v20a3 3 0 0 0 3 3h20a1 1 0 0 0 0-2" /><path d="M15 20a1 1 0 0 0 1-1v-7a1 1 0 0 0-2 0v7a1 1 0 0 0 1 1m-8 0a1 1 0 0 0 1-1v-7a1 1 0 1 0-2 0v7a1 1 0 0 0 1 1m12 0a1 1 0 0 0 1-1V7a1 1 0 1 0-2 0v12a1 1 0 0 0 1 1m-8 0a1 1 0 0 0 1-1V7a1 1 0 0 0-2 0v12a1 1 0 0 0 1 1" /></>) }
   ] },
   { label: 'УПРАВЛЕНИЕ', items: [
-    { id: 'monitoring', label: 'Мониторинг', icon: icon(<><path d="M3 12h4l3-8 4 16 3-8h4" /></>) },
-    { id: 'stores', label: 'Источники', icon: icon(<><path d="M4 7l1.5-3h13L20 7" /><path d="M4 7h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7z" /><path d="M9 11h6" /></>) }
+    { id: 'monitoring', label: 'Мониторинг', icon: fillIcon(<path d="M19 1H5a5.006 5.006 0 0 0-5 5v8a5.006 5.006 0 0 0 5 5h6v2H7a1 1 0 1 0 0 2h10a1 1 0 0 0 0-2h-4v-2h6a5.006 5.006 0 0 0 5-5V6a5.006 5.006 0 0 0-5-5m3 13a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3zm-2-4a1 1 0 0 1-1 1h-2.965l-1.7 2.554A1 1 0 0 1 13.5 14h-.062a1 1 0 0 1-.833-.55l-2.229-4.462-1.044 1.567A1 1 0 0 1 8.5 11H5a1 1 0 0 1 0-2h2.965l1.7-2.555A.99.99 0 0 1 10.562 6a1 1 0 0 1 .833.551l2.229 4.46 1.044-1.568A1 1 0 0 1 15.5 9H19a1 1 0 0 1 1 1" />) },
+    { id: 'stores', label: 'Источники', icon: fillIcon(<><path d="M9 14h6a1 1 0 1 0 0-2H9a1 1 0 0 0 0 2" /><path d="M19 0H5a5.006 5.006 0 0 0-5 5v1a3 3 0 0 0 1 2.234V19a5.006 5.006 0 0 0 5 5h12a5.006 5.006 0 0 0 5-5V8.234A3 3 0 0 0 24 6V5a5.006 5.006 0 0 0-5-5M2 5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1zm19 14a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V9h18z" /></>) }
   ] }
 ]
 
 export default function Sidebar({ page, onNavigate }: Props) {
-  const [summary, setSummary] = useState<AnalyticsSummary | null>(null)
+  const [ownStore, setOwnStore] = useState<Store | null>(null)
+  const [marketDiff, setMarketDiff] = useState<number | null>(null)
+  const [customFavicon, setCustomFavicon] = useState<string | null>(null)
+  const faviconInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let timer: number | undefined
-    const refresh = () => window.observa.analyticsSummary().then(setSummary).catch(() => {})
+    const refresh = () => {
+      Promise.all([window.observa.storesList(), window.observa.analyticsSummary(), window.observa.settingsGet()]).then(([stores, summary, settings]) => {
+        setOwnStore(stores.find(store => store.role === 'own') || null)
+        setCustomFavicon(settings.ownStoreFavicon || null)
+        const rows = (summary?.priceMatrix || []).filter(row => row.ownOffers.length > 0 && row.differencePercent != null)
+        setMarketDiff(rows.length ? rows.reduce((sum, row) => sum + (row.differencePercent || 0), 0) / rows.length : null)
+      }).catch(() => {})
+    }
     const scheduleRefresh = () => {
       window.clearTimeout(timer)
       timer = window.setTimeout(refresh, 250)
@@ -42,15 +54,31 @@ export default function Sidebar({ page, onNavigate }: Props) {
     }
   }, [])
 
+  const pickFavicon = () => faviconInputRef.current?.click()
+
+  const onFaviconFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    imageFileToDataUrl(file)
+      .then(dataUrl => window.observa.settingsUpdate({ ownStoreFavicon: dataUrl }))
+      .then(settings => setCustomFavicon(settings.ownStoreFavicon))
+      .catch(() => {})
+  }
+
+  const clearFavicon = () => {
+    window.observa.settingsUpdate({ ownStoreFavicon: null }).then(settings => setCustomFavicon(settings.ownStoreFavicon))
+  }
+
   const isMac = window.observa?.platform === 'darwin'
-  const matrix = summary?.priceMatrix || []
-  const matchedRows = matrix.filter(row => row.ownOffers.length > 0)
-    .sort((left, right) => Math.abs(right.differencePercent || 0) - Math.abs(left.differencePercent || 0))
-  const displayRows = matchedRows.length ? matchedRows : matrix
-  const comparedOfferIds = new Set(matrix.flatMap(row => row.offers.map(offer => `${offer.storeId}|${offer.productId}`)))
-  const watchedOffers = (summary?.allOffers || []).filter(offer => offer.price !== null && !comparedOfferIds.has(`${offer.storeId}|${offer.productId}`))
-    .sort((left, right) => String(right.lastChecked || '').localeCompare(String(left.lastChecked || '')))
-  const watchCount = displayRows.length + watchedOffers.length
+  const diffClass = marketDiff == null ? '' : marketDiff > 0.05 ? 'price-up' : marketDiff < -0.05 ? 'price-down' : ''
+  const diffText = !ownStore
+    ? 'Не добавлен'
+    : marketDiff == null
+      ? 'Нет данных о ценах'
+      : Math.abs(marketDiff) <= 0.05
+        ? 'На уровне рынка'
+        : `${formatPercent(marketDiff)} vs рынок`
 
   return (
     <aside className="sidebar">
@@ -72,66 +100,32 @@ export default function Sidebar({ page, onNavigate }: Props) {
         </div>)}
       </nav>
 
-      <section className="sidebar-market-watch" aria-label="Мониторинг цен">
-        <div className="sidebar-watch-heading"><span>МОНИТОРИНГ ЦЕН</span><small>{watchCount}</small></div>
-        <div className="sidebar-watch-list">
-          {displayRows.map(row => {
-            const own = row.ownOffers[0]
-            const best = row.bestCompetitor
-            const prices = row.offers.map(offer => offer.price)
-            const primaryOffer = own || row.offers.slice().sort((left, right) => left.price - right.price)[0]
-            const ownItem = summary?.allOffers.find(offer => offer.storeId === primaryOffer.storeId && offer.productId === primaryOffer.productId)
-            const thumbnail = ownItem || summary?.allOffers.find(offer => row.offers.some(item => item.storeId === offer.storeId && item.productId === offer.productId))
-            const recentChange = summary?.recentPriceChanges.find(change => change.storeId === primaryOffer.storeId && change.productId === primaryOffer.productId)
-            const deltaTone = recentChange ? (recentChange.changePercent > 0 ? 'up' : 'down') : (row.differencePercent || 0) > 0 ? 'up' : 'down'
-            const stats = recentChange
-              ? `${formatPercent(recentChange.changePercent)} · ${timeAgo(recentChange.lastChangedAt)}`
-              : !own && prices.length > 1
-                ? `Рынок ${formatPrice(Math.min(...prices), row.currency)}–${formatPrice(Math.max(...prices), row.currency)}`
-                : own && row.differencePercent == null
-                ? 'Нет динамики цены'
-                : own
-                  ? `${row.differencePercent! > 0 ? 'Дороже конкурента' : 'Дешевле конкурента'} на ${formatPercent(Math.abs(row.differencePercent!))}`
-                  : 'Цена отслеживается'
-            return <button className="sidebar-watch-row" key={`${row.productName}|${row.currency}`} onClick={() => onNavigate('analytics', { key: `${row.productName}|${row.currency}` })} title="Открыть сравнение цен">
-              <MarketThumb imageUrl={thumbnail?.imageUrl} url={primaryOffer.url} label={row.productName} />
-              <span className="sidebar-watch-copy">
-                <b>{row.productName}</b>
-                <span>{own ? formatPrice(own.price, own.currency) : `от ${formatPrice(primaryOffer.price, primaryOffer.currency)}`}{best ? ` · конкурент ${formatPrice(best.price, best.currency)}` : own ? ' · ждёт цены конкурентов' : ` · ${row.offers.length} источника`}</span>
-                <small className={recentChange || row.differencePercent != null ? `watch-change ${deltaTone}` : ''}>{stats}</small>
-              </span>
-            </button>
-          })}
-          {watchedOffers.map((offer: MarketOffer | PriceOffer) => {
-            const imageUrl = 'imageUrl' in offer ? offer.imageUrl : null
-            const change = summary?.recentPriceChanges.find(item => item.storeId === offer.storeId && item.productId === offer.productId)
-            return <button className="sidebar-watch-row" key={`${offer.storeId}|${offer.productId}`} onClick={() => onNavigate('analytics', { search: offer.productName })} title="Открыть все предложения">
-              <MarketThumb imageUrl={imageUrl} url={offer.url} label={offer.productName} />
-              <span className="sidebar-watch-copy">
-                <b>{offer.productName}</b>
-                <span>{formatPrice(offer.price, offer.currency)} · {offer.storeName}</span>
-                <small className={change ? `watch-change ${change.changePercent > 0 ? 'up' : 'down'}` : ''}>{change ? `${formatPercent(change.changePercent)} · ${timeAgo(change.lastChangedAt)}` : offer.stale ? 'Данные могут устареть' : 'Цена отслеживается'}</small>
-              </span>
-            </button>
-          })}
-          {summary && !watchCount && <div className="sidebar-watch-empty">Добавьте источники и свой магазин, чтобы видеть здесь цены и динамику.</div>}
-          {!summary && <div className="sidebar-watch-empty">Загружаю цены…</div>}
-        </div>
-        <button className="sidebar-watch-link" onClick={() => onNavigate('analytics')}>Открыть сравнения цен</button>
-      </section>
       <button className={`nav-item sidebar-settings-button ${page === 'settings' ? 'active' : ''}`} onClick={() => onNavigate('settings')} aria-current={page === 'settings' ? 'page' : undefined}>
         <span className="nav-icon"><Icon name="settings" size={18} /></span><span>Настройки</span>
+      </button>
+
+      <button className="sidebar-own-store" onClick={() => onNavigate('stores')} data-tooltip="Открыть источники">
+        <span className="sidebar-own-favicon-wrap">
+          <StoreFavicon store={ownStore} custom={customFavicon} />
+          <span className="favicon-action" onClick={event => { event.stopPropagation(); pickFavicon() }} data-tooltip={customFavicon ? 'Заменить значок' : 'Загрузить свой значок'}>
+            <Icon name="pencil" size={9} />
+          </span>
+          {customFavicon && (
+            <span className="favicon-action reset" onClick={event => { event.stopPropagation(); clearFavicon() }} data-tooltip="Убрать свой значок">
+              <Icon name="close" size={9} />
+            </span>
+          )}
+        </span>
+        <span className="sidebar-own-copy">
+          <b>{ownStore?.name || 'Мой магазин'}</b>
+          <small className={diffClass}>{diffText}</small>
+        </span>
+        <input ref={faviconInputRef} type="file" accept="image/*" hidden onChange={onFaviconFile} />
       </button>
     </aside>
   )
 }
 
-function MarketThumb({ imageUrl, url, label }: { imageUrl: string | null | undefined; url: string; label: string }) {
-  const [stage, setStage] = useState(0)
-  useEffect(() => setStage(0), [imageUrl, url])
-  let favicon = ''
-  try { favicon = `${new URL(url).origin}/favicon.ico` } catch { /* show initials */ }
-  const src = stage === 0 && imageUrl ? imageUrl : stage <= 1 && favicon ? favicon : ''
-  if (!src) return <span className="sidebar-watch-thumb fallback" aria-hidden="true">{label.slice(0, 1).toLocaleUpperCase('ru')}</span>
-  return <img className="sidebar-watch-thumb" src={src} alt="" onError={() => setStage(current => current >= 1 || !imageUrl ? 2 : 1)} />
+function StoreFavicon({ store, custom }: { store: Store | null; custom: string | null }) {
+  return <StoreIcon url={store?.url} name={store?.name || 'М'} customIcon={store?.customIcon || custom} className="sidebar-own-favicon" />
 }
