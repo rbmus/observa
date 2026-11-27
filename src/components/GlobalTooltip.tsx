@@ -3,33 +3,42 @@ import { createPortal } from 'react-dom'
 
 interface Tip {
   text: string
-  left: number
-  top: number
+  x: number
+  y: number
   below: boolean
 }
 
-const TIP_H = 30
+const TIP_GAP = 10
+const TIP_W = 260
+const TIP_H = 34
 
 export default function GlobalTooltip() {
   const [tip, setTip] = useState<Tip | null>(null)
   const anchorRef = useRef<HTMLElement | null>(null)
+  const boundsRef = useRef<DOMRect | null>(null)
+  const cursorRef = useRef({ x: 0, y: 0 })
 
   useEffect(() => {
-    const place = (el: HTMLElement) => {
-      const rect = el.getBoundingClientRect()
-      const preferBottom = el.getAttribute('data-tip') === 'bottom'
-      const spaceTop = rect.top
-      const spaceBottom = window.innerHeight - rect.bottom
-      let below = preferBottom
-      if (!preferBottom && spaceTop < TIP_H + 12 && spaceBottom > spaceTop) below = true
-      if (preferBottom && spaceBottom < TIP_H + 12 && spaceTop > spaceBottom) below = false
-      const left = Math.min(Math.max(rect.left + rect.width / 2, 70), window.innerWidth - 70)
-      setTip({
-        text: el.getAttribute('data-tooltip') || '',
-        left,
-        top: below ? rect.bottom + 8 : rect.top - 8,
-        below
-      })
+    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max))
+
+    const place = () => {
+      const el = anchorRef.current
+      if (!el) return
+      const bounds = boundsRef.current
+      const areaLeft = bounds ? bounds.left : 0
+      const areaRight = bounds ? bounds.right : window.innerWidth
+      const areaTop = bounds ? bounds.top : 0
+      const areaBottom = bounds ? bounds.bottom : window.innerHeight
+
+      const spaceBelow = areaBottom - cursorRef.current.y
+      const below = spaceBelow < TIP_H + TIP_GAP * 2 && cursorRef.current.y - areaTop > spaceBelow
+
+      const x = clamp(cursorRef.current.x, areaLeft + TIP_W / 2 + 4, areaRight - TIP_W / 2 - 4)
+      const y = below
+        ? clamp(cursorRef.current.y + TIP_GAP, areaTop + 4, areaBottom - TIP_H - 4)
+        : clamp(cursorRef.current.y - TIP_GAP, areaTop + TIP_H + 4, areaBottom - 4)
+
+      setTip({ text: el.getAttribute('data-tooltip') || '', x, y, below })
     }
 
     const onOver = (event: MouseEvent) => {
@@ -38,7 +47,16 @@ export default function GlobalTooltip() {
       const text = el.getAttribute('data-tooltip')
       if (!text) return
       anchorRef.current = el
-      place(el)
+      cursorRef.current = { x: event.clientX, y: event.clientY }
+      const boundsEl = el.closest?.('[data-tip-bounds]') as HTMLElement | null
+      boundsRef.current = boundsEl ? boundsEl.getBoundingClientRect() : null
+      place()
+    }
+
+    const onMove = (event: MouseEvent) => {
+      if (!anchorRef.current) return
+      cursorRef.current = { x: event.clientX, y: event.clientY }
+      place()
     }
 
     const onOut = (event: MouseEvent) => {
@@ -47,20 +65,24 @@ export default function GlobalTooltip() {
       const next = event.relatedTarget as HTMLElement | null
       if (next && (el.contains(next) || next.closest?.('[data-tooltip]'))) return
       anchorRef.current = null
+      boundsRef.current = null
       setTip(null)
     }
 
     const hide = () => {
       anchorRef.current = null
+      boundsRef.current = null
       setTip(null)
     }
 
     document.addEventListener('mouseover', onOver)
+    document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseout', onOut)
     window.addEventListener('scroll', hide, true)
     window.addEventListener('resize', hide)
     return () => {
       document.removeEventListener('mouseover', onOver)
+      document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseout', onOut)
       window.removeEventListener('scroll', hide, true)
       window.removeEventListener('resize', hide)
@@ -69,7 +91,7 @@ export default function GlobalTooltip() {
 
   if (!tip) return null
   return createPortal(
-    <div className={`app-tooltip${tip.below ? ' below' : ''}`} style={{ left: tip.left, top: tip.top }}>
+    <div className={`app-tooltip${tip.below ? ' below' : ''}`} style={{ left: tip.x, top: tip.y }}>
       {tip.text}
     </div>,
     document.body

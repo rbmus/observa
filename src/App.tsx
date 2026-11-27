@@ -9,9 +9,10 @@ import Monitoring from './pages/Monitoring'
 import Settings from './pages/Settings'
 import Toasts, { type Toast } from './components/Toasts'
 import SimilarProductsModal from './components/SimilarProductsModal'
+import UpdateModal from './components/UpdateModal'
 import GlobalTooltip from './components/GlobalTooltip'
 import { formatPrice } from './utils/format'
-import type { AnalyticsFocus, MonitorEvent } from './types'
+import type { AnalyticsFocus, MonitorEvent, UpdateState } from './types'
 
 export type Page = 'dashboard' | 'analytics' | 'monitoring' | 'stores' | 'store-detail' | 'settings'
 
@@ -21,6 +22,9 @@ export default function App() {
   const [similarTarget, setSimilarTarget] = useState<{ storeId: string; productId: string } | null>(null)
   const [analyticsFocus, setAnalyticsFocus] = useState<AnalyticsFocus | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null)
+  const [currentVersion, setCurrentVersion] = useState('')
+  const [updateDismissedKey, setUpdateDismissedKey] = useState('')
   const toastId = useRef(0)
 
   const pushToast = useCallback((toast: Omit<Toast, 'id'>) => {
@@ -29,6 +33,12 @@ export default function App() {
   }, [])
   const dismissToast = useCallback((id: number) => {
     setToasts(current => current.filter(toast => toast.id !== id))
+  }, [])
+
+  useEffect(() => {
+    window.observa.updateStatus().then(setUpdateState).catch(() => {})
+    window.observa.appVersion().then(setCurrentVersion).catch(() => {})
+    return window.observa.onUpdateEvent(setUpdateState)
   }, [])
 
   useEffect(() => window.observa.onUpdateEvent(state => {
@@ -73,6 +83,15 @@ export default function App() {
     }
   }), [pushToast])
 
+  const updateModalKey = updateState?.version
+    ? `${updateState.version}:${updateState.status === 'downloaded' ? 'ready' : 'pending'}`
+    : ''
+  const showUpdateModal = Boolean(
+    updateState?.version &&
+    ['available', 'downloading', 'downloaded'].includes(updateState.status) &&
+    updateModalKey !== updateDismissedKey
+  )
+
   const openStore = (id: string) => {
     setSelectedStoreId(id)
     setPage('store-detail')
@@ -94,7 +113,7 @@ export default function App() {
     <div className="app">
       <TitleBar />
       <div className="app-body">
-        <Sidebar page={page} onNavigate={navigate} />
+        <Sidebar page={page} onNavigate={navigate} onOpenStore={openStore} />
         <main className="main">
           {page === 'dashboard' && <Dashboard onOpenStore={openStore} onOpenSimilar={openSimilar} onNavigate={navigate} />}
           {page === 'stores' && <Stores onOpenStore={openStore} />}
@@ -108,6 +127,15 @@ export default function App() {
       </div>
       <Toasts toasts={toasts} onDismiss={dismissToast} />
       {similarTarget && <SimilarProductsModal storeId={similarTarget.storeId} productId={similarTarget.productId} onClose={() => setSimilarTarget(null)} />}
+      {showUpdateModal && updateState && (
+        <UpdateModal
+          update={updateState}
+          currentVersion={currentVersion}
+          onClose={() => setUpdateDismissedKey(updateModalKey)}
+          onInstall={() => window.observa.updateInstall()}
+          onDownload={() => window.observa.updateDownload()}
+        />
+      )}
       <GlobalTooltip />
     </div>
   )

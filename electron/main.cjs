@@ -6,7 +6,7 @@ const ExcelJS = require('exceljs')
 const { autoUpdater } = require('electron-updater')
 const { StoreService } = require(path.join(__dirname, 'services/storeService.cjs'))
 const { PriceChecker } = require(path.join(__dirname, 'services/priceChecker.cjs'))
-const { Analyzer, cleanComparableName, normalizeMatchName, similarity } = require(path.join(__dirname, 'services/analyzer.cjs'))
+const { Analyzer, cleanComparableName, normalizeMatchName, similarityCore } = require(path.join(__dirname, 'services/analyzer.cjs'))
 
 let mainWindow = null
 let storeService = null
@@ -40,11 +40,11 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.on('checking-for-update', () => sendUpdateEvent({ status: 'checking', error: null }))
-  autoUpdater.on('update-available', info => sendUpdateEvent({ status: 'available', version: info.version }))
-  autoUpdater.on('update-not-available', () => sendUpdateEvent({ status: 'latest' }))
+  autoUpdater.on('update-available', info => sendUpdateEvent({ status: 'available', version: info.version, releaseNotes: normalizeReleaseNotes(info.releaseNotes) }))
+  autoUpdater.on('update-not-available', () => sendUpdateEvent({ status: 'latest', releaseNotes: null }))
   autoUpdater.on('download-progress', p => sendUpdateEvent({ status: 'downloading', percent: Math.round(p.percent || 0) }))
   autoUpdater.on('update-downloaded', info => {
-    sendUpdateEvent({ status: 'downloaded', version: info.version })
+    sendUpdateEvent({ status: 'downloaded', version: info.version, releaseNotes: normalizeReleaseNotes(info.releaseNotes) })
     const notification = new Notification({ title: 'OBSERVA', body: `Готово обновление ${info.version} — перезапустите приложение` })
     notification.on('click', () => openWindow('settings'))
     notification.show()
@@ -554,6 +554,9 @@ ipcMain.handle('update:check', async () => {
     return { ok: false, error: error?.message || String(error) }
   }
 })
+ipcMain.handle('update:download', () => {
+  if (app.isPackaged && updateState.status === 'available') autoUpdater.downloadUpdate().catch(() => {})
+})
 ipcMain.handle('update:install', () => {
   if (app.isPackaged && updateState.status === 'downloaded') autoUpdater.quitAndInstall()
 })
@@ -597,24 +600,22 @@ ipcMain.handle('analytics:similarProducts', (_, storeId, productId) => {
     lastChecked: offer.lastChecked || null,
     url: offer.url || null,
     imageUrl: offer.imageUrl || imageByRef.get(`${offer.storeId}|${offer.productId}`) || null,
-    category: offer.category || 'general'
+    category: offer.category || 'general',
+    history: storeService.getHistory(offer.storeId, offer.productId).slice(-300)
   })
-  // Keyword matching across every known offer: ignore plan durations/numbers —
-  // "Telegram Premium" and "Telegram Premium 3 месяца" are the same product.
+  // Мягкое сопоставление по всем известным предложениям: длительности и
+  // SKU-атрибуты игнорируются — «Telegram Premium» и «Telegram Premium 3
+  // месяца» считаются одним продуктом. Тот же similarityCore, что и в
+  // движке аналитики, плюс уважение к парам, разделённым пользователем.
   const target = normalizeMatchName(cleanComparableName(product.name))
-  const coreTokens = match => match.tokens.filter(token => !token.startsWith('duration') && !/^\d+$/.test(token))
-  const keywordScore = (a, b) => {
-    const left = coreTokens(a)
-    const right = coreTokens(b)
-    if (!left.length || !right.length) return 0
-    const intersection = left.filter(token => right.includes(token)).length
-    return intersection ? (2 * intersection) / (left.length + right.length) : 0
-  }
+  const separatedPairKeys = new Set((storeService.getComparisonRules().separatedPairs || [])
+    .map(pair => JSON.stringify(pair.slice().sort())))
+  const isSeparatedFromTarget = offer => separatedPairKeys.has(JSON.stringify([ref, `${offer.storeId}|${offer.productId}`].sort()))
   const keywordOffers = target.key
     ? summary.allOffers
-        .filter(offer => !(offer.storeId === storeId && offer.productId === productId) && offer.price != null)
+        .filter(offer => !(offer.storeId === storeId && offer.productId === productId) && offer.price != null && !isSeparatedFromTarget(offer))
         .map(offer => ({ offer, match: normalizeMatchName(cleanComparableName(offer.productName)) }))
-        .filter(({ match }) => match.key && keywordScore(target, match) >= 0.5)
+        .filter(({ match }) => match.key && similarityCore(target, match) >= 0.5)
         .map(({ offer }) => toOffer(offer))
     : []
 
@@ -628,7 +629,8 @@ ipcMain.handle('analytics:similarProducts', (_, storeId, productId) => {
       sourceType: store.sourceType === 'telegram' ? 'telegram' : 'website',
       price: product.price ?? null, currency: product.currency || 'RUB',
       lastChecked: product.lastChecked || null, url: product.url || store.url,
-      imageUrl: product.imageUrl || null, category: product.category || 'general'
+      imageUrl: product.imageUrl || null, category: product.category || 'general',
+      history: storeService.getHistory(storeId, product.id).slice(-300)
     }
     const merged = new Map()
     for (const offer of [...row.offers.map(toOffer), ...keywordOffers, toOffer(selfOffer)]) {

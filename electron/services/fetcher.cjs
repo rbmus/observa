@@ -492,9 +492,24 @@ async function fetchMagapCatalog(url) {
   if (business.status && business.status !== 'active') throw new Error(`Magap: магазин «${business.name || slug}» не активен`)
 
   const productsResponse = await axios.get(`${apiBase}/${encodeURIComponent(slug)}/products`, requestOptions)
+  // Платформенные иконки Magap лежат в /icons/, часть — в /icons/catalog/.
+  // Проверено по живым URL: catalog → telegram, ea-play, fortnite,
+  // midjourney, ps-plus-*, roblox, steam; root → apple, xbox,
+  // playstation, steam, ai, roblox.
   const iconByPlatform = [
-    [/apple|app store/i, 'apple'], [/xbox/i, 'xbox'], [/playstation|psn|ps plus/i, 'playstation'],
-    [/steam/i, 'steam'], [/нейросет|\bai\b|chatgpt/i, 'ai']
+    { re: /ps\s*plus\s*extra/i, icon: 'ps-plus-extra', catalog: true },
+    { re: /ps\s*plus\s*deluxe/i, icon: 'ps-plus-deluxe', catalog: true },
+    { re: /ps\s*plus\s*(?:essential|basic)/i, icon: 'ps-plus-essential', catalog: true },
+    { re: /ea\s*play/i, icon: 'ea-play', catalog: true },
+    { re: /fortnite/i, icon: 'fortnite', catalog: true },
+    { re: /midjourney/i, icon: 'midjourney', catalog: true },
+    { re: /telegram|телеграм|\bstars?\b/i, icon: 'telegram', catalog: true },
+    { re: /apple|app store/i, icon: 'apple' },
+    { re: /xbox/i, icon: 'xbox' },
+    { re: /playstation|psn|ps plus/i, icon: 'playstation' },
+    { re: /steam/i, icon: 'steam' },
+    { re: /нейросет|\bai\b|chatgpt|\bgpt\b/i, icon: 'ai' },
+    { re: /roblox/i, icon: 'roblox' }
   ]
   const products = (Array.isArray(productsResponse.data) ? productsResponse.data : [])
     .filter(item => item && item.is_active !== false)
@@ -509,8 +524,8 @@ async function fetchMagapCatalog(url) {
         // Magap currently leaves image_url empty for every product. Use its
         // published platform artwork as a useful fallback until item photos exist.
         imageUrl: normalizeUrl(item.image_url, storefrontUrl.origin) || (() => {
-          const icon = iconByPlatform.find(([pattern]) => pattern.test(`${item.platform || ''} ${item.title || ''}`))?.[1]
-          return icon ? normalizeUrl(`/icons/${icon}.png`, storefrontUrl.origin) : null
+          const match = iconByPlatform.find(({ re }) => re.test(`${item.platform || ''} ${item.title || ''}`))
+          return match ? normalizeUrl(`/icons/${match.catalog ? 'catalog/' : ''}${match.icon}.png`, storefrontUrl.origin) : null
         })(),
         sourceKey: `magap:${item.sku || item.id}`
       }

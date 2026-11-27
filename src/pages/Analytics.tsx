@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AnalyticsFocus, AnalyticsSummary, PriceMatrixRow } from '../types'
+import type { AnalyticsFocus, AnalyticsSummary, MatchSuggestion, PriceMatrixRow } from '../types'
 import type { MarketOffer, PriceOffer } from '../types'
 import { formatPrice, formatPercent } from '../utils/format'
 import { Icon } from '../components/icons'
@@ -92,6 +92,7 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
 
   const priceMatrix = summary?.priceMatrix ?? []
   const allOffers = summary?.allOffers ?? []
+  const imageByRef = new Map(allOffers.map(offer => [`${offer.storeId}|${offer.productId}`, offer.imageUrl]))
   const currencies = [...new Set([...priceMatrix.map(row => row.currency), ...allOffers.map(offer => offer.currency)])].sort()
   const comparableOfferIds = new Set(priceMatrix.flatMap(row => row.offers.map(offer => `${offer.storeId}|${offer.productId}`)))
   const visibleOffers = (row: PriceMatrixRow) => row.offers.filter(offer => storeType === 'all' || (storeType === 'telegram' ? offer.sourceType === 'telegram' : offer.role === storeType))
@@ -171,6 +172,18 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
     } finally { setSavingMatch(false) }
   }
 
+  const mergeSuggestion = async (suggestion: MatchSuggestion) => {
+    setSavingMatch(true)
+    try {
+      const refs = suggestion.offers.map(offer => ({ storeId: offer.storeId, productId: offer.productId }))
+      await window.observa.analyticsSaveMatch(refs, suggestion.productName)
+      setSelectedReviewKeys([])
+      await refresh()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Не удалось сохранить совпадение')
+    } finally { setSavingMatch(false) }
+  }
+
   useEffect(() => {
     let active = true
     if (!summary || view !== 'comparisons') return () => { active = false }
@@ -246,11 +259,21 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
           <div><b>Проверьте, какие позиции действительно сравнимы</b><p>Объединяйте предложения в одной валюте и из разных источников. Разделённые пары больше не будут автоматически сопоставляться.</p></div>
           <button className="btn primary" onClick={saveSelectedMatch} disabled={!mergeIsValid || savingMatch}>{savingMatch ? 'Сохраняю…' : `Объединить выбранные (${chosenReviewOffers.length})`}</button>
         </section>
+        {(summary.matchSuggestions?.length ?? 0) > 0 && <section className="dashboard-panel">
+          <div className="panel-heading"><div><h2>Возможные совпадения</h2><p>Похожие предложения, которые не были объединены автоматически — проверьте и подтвердите вручную.</p></div></div>
+          <div className="table-wrap"><table><thead><tr><th>Предложения</th><th>Сходство</th><th>Решение</th></tr></thead><tbody>
+            {summary.matchSuggestions.map((suggestion, index) => <tr key={`${suggestion.offers.map(offer => `${offer.storeId}|${offer.productId}`).join(',')}-${index}`}>
+              <td><div className="offer-list">{suggestion.offers.map(offer => <span key={`${offer.storeId}-${offer.productId}`}><ProductImage imageUrl={imageByRef.get(`${offer.storeId}|${offer.productId}`)} sourceUrl={offer.url} className="offer-thumb" placeholderClassName="offer-thumb offer-thumb-placeholder" placeholderIcon="tag" /><b data-tooltip={offer.storeName}>{offer.storeName}</b> {formatPrice(offer.price, offer.currency)}<small data-tooltip={offer.productName}>{offer.productName}{offer.sourceType === 'telegram' ? ' · Telegram' : ''}</small></span>)}</div></td>
+              <td>{Math.round(suggestion.score * 100)}%</td>
+              <td><button className="btn small" onClick={() => mergeSuggestion(suggestion)} disabled={savingMatch}>Объединить</button></td>
+            </tr>)}
+          </tbody></table></div>
+        </section>}
         <div className="table-wrap price-matrix-wrap"><table className="match-review-table"><thead><tr><th></th><th>Услуга / тариф</th><th>Предложения</th><th>Уверенность</th><th>Решение</th></tr></thead><tbody>
           {reviewEntries.map(entry => <tr key={entry.key}>
             <td><Checkbox checked={selectedReviewKeys.includes(entry.key)} onChange={checked => setSelectedReviewKeys(current => checked ? [...current, entry.key] : current.filter(key => key !== entry.key))} label="Выбрать для объединения" /></td>
-            <td><b data-tooltip={entry.productName}>{entry.productName}</b>{entry.manual && <small className="matrix-source">Закреплено вручную</small>}</td>
-            <td><div className="offer-list">{entry.offers.map(offer => <span key={`${offer.storeId}-${offer.productId}`}><b data-tooltip={offer.storeName}>{offer.storeName}</b> {offer.price == null ? 'Нет цены' : formatPrice(offer.price, offer.currency)}<small data-tooltip={offer.productName}>{offer.productName}</small></span>)}</div></td>
+            <td><div className="market-product-cell matrix-product-cell">{(() => { const imageOffer = entry.offers.find(offer => imageByRef.get(`${offer.storeId}|${offer.productId}`)) || entry.offers[0]; return imageOffer ? <ProductImage imageUrl={imageByRef.get(`${imageOffer.storeId}|${imageOffer.productId}`)} sourceUrl={imageOffer.url} className="market-product-image" placeholderClassName="market-product-placeholder" placeholderIcon="tag" /> : null })()}<span><b data-tooltip={entry.productName}>{entry.productName}</b>{entry.manual && <small className="matrix-source">Закреплено вручную</small>}</span></div></td>
+            <td><div className="offer-list">{entry.offers.map(offer => <span key={`${offer.storeId}-${offer.productId}`}><ProductImage imageUrl={imageByRef.get(`${offer.storeId}|${offer.productId}`)} sourceUrl={offer.url} className="offer-thumb" placeholderClassName="offer-thumb offer-thumb-placeholder" placeholderIcon="tag" /><b data-tooltip={offer.storeName}>{offer.storeName}</b> {offer.price == null ? 'Нет цены' : formatPrice(offer.price, offer.currency)}<small data-tooltip={offer.productName}>{offer.productName}</small>{offer.sameNameOffers?.length ? <small data-tooltip={offer.sameNameOffers.join(' · ')}>ещё {offer.sameNameOffers.length} с тем же названием</small> : null}</span>)}</div></td>
             <td>{entry.manual ? 'Ручное' : entry.confidence ? `${Math.round(entry.confidence * 100)}%` : 'Не сопоставлено'}</td>
             <td>{entry.offers.length > 1 && <button className="btn small" onClick={() => splitMatch(entry.offers)} disabled={savingMatch}>Разделить</button>}</td>
           </tr>)}
@@ -266,9 +289,10 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
               const own = row.ownOffers[0]
               const best = row.bestCompetitor
               const lowerAtOwn = row.difference != null && row.difference <= 0
+              const imageOffer = [...row.ownOffers, ...row.offers].find(offer => imageByRef.get(`${offer.storeId}|${offer.productId}`)) || row.ownOffers[0] || row.offers[0]
               return (
                 <tr key={`${row.productName}-${row.currency}-${index}`}>
-                  <td><b data-tooltip={row.productName}>{row.productName}</b><small className="matrix-currency">{row.currency}</small>{row.matchedNames.length > 1 && <small className="matrix-matched-names">{row.matchConfidence < 0.8 ? 'Похожее совпадение: ' : 'Варианты названия: '}{row.matchedNames.join(' · ')}</small>}</td>
+                  <td><div className="market-product-cell matrix-product-cell">{imageOffer && <ProductImage imageUrl={imageByRef.get(`${imageOffer.storeId}|${imageOffer.productId}`)} sourceUrl={imageOffer.url} className="market-product-image" placeholderClassName="market-product-placeholder" placeholderIcon="tag" />}<span><b data-tooltip={row.productName}>{row.productName}</b><small className="matrix-currency">{row.currency}</small>{row.matchedNames.length > 1 && <small className="matrix-matched-names">{row.matchConfidence < 0.8 ? 'Похожее совпадение: ' : 'Варианты названия: '}{row.matchedNames.join(' · ')}</small>}</span></div></td>
                   <td>{own?.storeName || '—'}</td>
                   <td className="matrix-price">{own ? formatPrice(own.price, own.currency) : '—'}</td>
                   <td>{best?.storeName || '—'}{best?.sourceType === 'telegram' && <small className="matrix-source">Telegram</small>}</td>
@@ -276,7 +300,7 @@ export default function Analytics({ onOpenCompetitors, focus }: Props) {
                   <td className={row.difference == null ? '' : lowerAtOwn ? 'price-down' : 'price-up'}>
                     {row.difference == null ? '—' : <>{formatPrice(row.difference, row.currency)}<small className="matrix-delta">{formatPercent(row.differencePercent)}</small></>}
                   </td>
-                  <td><div className="offer-list">{visibleOffers(row).map(offer => <span key={`${offer.storeId}-${offer.productId}`}><b data-tooltip={offer.storeName}>{offer.storeName}</b> {formatPrice(offer.price, offer.currency)}<small data-tooltip={offer.productName}>{offer.productName}{offer.sourceType === 'telegram' ? ' · Telegram' : ''}</small></span>)}</div></td>
+                  <td><div className="offer-list">{visibleOffers(row).map(offer => <span key={`${offer.storeId}-${offer.productId}`}><ProductImage imageUrl={imageByRef.get(`${offer.storeId}|${offer.productId}`)} sourceUrl={offer.url} className="offer-thumb" placeholderClassName="offer-thumb offer-thumb-placeholder" placeholderIcon="tag" /><b data-tooltip={offer.storeName}>{offer.storeName}</b> {formatPrice(offer.price, offer.currency)}<small data-tooltip={offer.productName}>{offer.productName}{offer.sourceType === 'telegram' ? ' · Telegram' : ''}</small>{offer.sameNameOffers?.length ? <small data-tooltip={offer.sameNameOffers.join(' · ')}>ещё {offer.sameNameOffers.length} с тем же названием</small> : null}</span>)}</div></td>
                 </tr>
               )
             })}

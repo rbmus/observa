@@ -7,7 +7,7 @@ import StoreIcon from './StoreIcon'
 import { Icon } from './icons'
 import Logo from './Logo'
 
-interface Props { page: Page; onNavigate: (p: Page, focus?: AnalyticsFocus | null) => void }
+interface Props { page: Page; onNavigate: (p: Page, focus?: AnalyticsFocus | null) => void; onOpenStore: (id: string) => void }
 
 const fillIcon = (children: ReactNode) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">{children}</svg>
@@ -24,7 +24,7 @@ const GROUPS: { label: string; items: { id: Page; label: string; icon: ReactNode
   ] }
 ]
 
-export default function Sidebar({ page, onNavigate }: Props) {
+export default function Sidebar({ page, onNavigate, onOpenStore }: Props) {
   const [ownStore, setOwnStore] = useState<Store | null>(null)
   const [marketDiff, setMarketDiff] = useState<number | null>(null)
   const [customFavicon, setCustomFavicon] = useState<string | null>(null)
@@ -72,10 +72,11 @@ export default function Sidebar({ page, onNavigate }: Props) {
 
   const isMac = window.observa?.platform === 'darwin'
   const diffClass = marketDiff == null ? '' : marketDiff > 0.05 ? 'price-up' : marketDiff < -0.05 ? 'price-down' : ''
+  const hasOwnPrices = Boolean(ownStore?.products?.some(p => p.price != null))
   const diffText = !ownStore
     ? 'Не добавлен'
     : marketDiff == null
-      ? 'Нет данных о ценах'
+      ? hasOwnPrices ? 'Нет совпадений с конкурентами' : 'Нет цен у товаров'
       : Math.abs(marketDiff) <= 0.05
         ? 'На уровне рынка'
         : `${formatPercent(marketDiff)} vs рынок`
@@ -104,7 +105,11 @@ export default function Sidebar({ page, onNavigate }: Props) {
         <span className="nav-icon"><Icon name="settings" size={18} /></span><span>Настройки</span>
       </button>
 
-      <button className="sidebar-own-store" onClick={() => onNavigate('stores')} data-tooltip="Открыть источники">
+      <button
+        className="sidebar-own-store"
+        onClick={() => ownStore ? onOpenStore(ownStore.id) : onNavigate('stores')}
+        data-tooltip={ownStore ? 'Открыть мой магазин' : 'Открыть источники'}
+      >
         <span className="sidebar-own-favicon-wrap">
           <StoreFavicon store={ownStore} custom={customFavicon} />
           <span className="favicon-action" onClick={event => { event.stopPropagation(); pickFavicon() }} data-tooltip={customFavicon ? 'Заменить значок' : 'Загрузить свой значок'}>

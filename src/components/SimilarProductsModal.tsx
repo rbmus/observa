@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { PricePoint, Product, SimilarProductsResult } from '../types'
-import { formatPrice, formatPercent } from '../utils/format'
+import { formatPrice, formatPercent, timeAgo } from '../utils/format'
 import PriceChart from './PriceChart'
+import PriceCompareChart from './PriceCompareChart'
 import { Icon } from './icons'
 import Loader from './Loader'
 import ProductImage from './ProductImage'
@@ -69,6 +70,10 @@ export default function SimilarProductsModal({ storeId, productId, onClose }: Pr
           <div className="page-loader"><Loader size={28} /></div>
         ) : result && result.offers.length > 0 ? (
           <>
+          <div className="similar-compare">
+            <div className="similar-section-title">Сравнение цен по магазинам</div>
+            <PriceCompareChart offers={result.offers} />
+          </div>
           <div className="similar-section-title">Похожие предложения на рынке</div>
           <div className="similar-grid">
             {result.offers.map(offer => (
@@ -76,19 +81,22 @@ export default function SimilarProductsModal({ storeId, productId, onClose }: Pr
                 <div className="product-img">
                   <ProductImage imageUrl={offer.imageUrl} sourceUrl={offer.url || storeUrl} className="product-image" />
                 </div>
-                <div className="product-body" data-tooltip={offer.productName}>
-                  <div className="product-name">{offer.productName}</div>
+                <div className="product-body">
+                  <div className="product-name" data-tooltip={offer.productName}>{offer.productName}</div>
                   <div className="similar-store">{offer.role === 'own' ? '★ ' : ''}{offer.storeName}</div>
                   <div className="product-price">{formatPrice(offer.price, offer.currency)}</div>
-                  {offer.url && (
-                    <a
-                      href="#"
-                      className="similar-link"
-                      onClick={e => { e.preventDefault(); e.stopPropagation(); window.observa.openExternal(offer.url!) }}
-                    >
-                      Открыть <Icon name="external" size={11} />
-                    </a>
-                  )}
+                  <div className="product-meta">
+                    <span>{timeAgo(offer.lastChecked)}</span>
+                    {offer.url && (
+                      <a
+                        href="#"
+                        className="similar-link"
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); window.observa.openExternal(offer.url!) }}
+                      >
+                        Открыть <Icon name="external" size={11} />
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

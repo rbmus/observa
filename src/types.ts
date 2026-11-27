@@ -87,6 +87,7 @@ export interface UpdateState {
   percent?: number
   error?: string | null
   packaged?: boolean
+  releaseNotes?: string | null
 }
 
 export interface MonitorEvent {
@@ -157,6 +158,7 @@ export interface PriceOffer {
   stale?: boolean
   staleAfterMs?: number
   manualFields?: { name?: boolean; price?: boolean; url?: boolean }
+  sameNameOffers?: string[]
   url: string
 }
 
@@ -164,6 +166,7 @@ export interface MarketOffer extends Omit<PriceOffer, 'price'> {
   price: number | null
   imageUrl: string | null
   category: string
+  history?: PricePoint[]
 }
 
 export interface PriceMatrixRow {
@@ -185,6 +188,24 @@ export interface SimilarProductsResult {
   offers: MarketOffer[]
 }
 
+export interface MatchSuggestionOffer {
+  storeId: string
+  productId: string
+  storeName: string
+  productName: string
+  price: number
+  currency: string
+  sourceType: 'website' | 'telegram'
+  url: string | null
+}
+
+export interface MatchSuggestion {
+  score: number
+  currency: string
+  productName: string
+  offers: MatchSuggestionOffer[]
+}
+
 export interface AnalyticsSummary {
   storesCount: number
   competitorStoresCount: number
@@ -197,6 +218,7 @@ export interface AnalyticsSummary {
   recentPriceChanges: RecentPriceChange[]
   comparisons: Comparison[]
   priceMatrix: PriceMatrixRow[]
+  matchSuggestions: MatchSuggestion[]
   allOffers: MarketOffer[]
   storesStatus: {
     id: string
@@ -255,6 +277,7 @@ declare global {
       appVersion: () => Promise<string>
       updateStatus: () => Promise<UpdateState>
       updateCheck: () => Promise<{ ok: boolean; error?: string }>
+      updateDownload: () => Promise<void>
       updateInstall: () => Promise<void>
       onUpdateEvent: (cb: (state: UpdateState) => void) => () => void
       analyticsSummary: () => Promise<AnalyticsSummary>

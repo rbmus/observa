@@ -51,6 +51,19 @@ class StoreService {
     data.priceHistory = data.priceHistory || {}
     data.manualMatches = Array.isArray(data.manualMatches) ? data.manualMatches : []
     data.separatedPairs = Array.isArray(data.separatedPairs) ? data.separatedPairs : []
+    // GC: правила сравнения ссылаются на товары по id — после удаления
+    // источников/товаров вне штатных методов (ручная правка файла, старые
+    // версии) в данных остаются «висячие» ссылки. Чистим их при загрузке.
+    const validRefs = new Set()
+    for (const store of data.stores) {
+      for (const product of store.products || []) validRefs.add(`${store.id}|${product.id}`)
+    }
+    const rulesBefore = JSON.stringify([data.manualMatches, data.separatedPairs])
+    data.manualMatches = data.manualMatches
+      .map(group => ({ ...group, refs: (group.refs || []).filter(ref => validRefs.has(`${ref.storeId}|${ref.productId}`)) }))
+      .filter(group => group.refs.length > 1)
+    data.separatedPairs = data.separatedPairs.filter(pair => Array.isArray(pair) && pair.length === 2 && pair.every(key => validRefs.has(key)))
+    if (JSON.stringify([data.manualMatches, data.separatedPairs]) !== rulesBefore) this._normalizationChanged = true
     return data
   }
 

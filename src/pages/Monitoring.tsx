@@ -291,6 +291,7 @@ export default function Monitoring() {
                 <td>{s.products.length}</td>
                 <td>
                   <span className={`badge ${s.status}`}>
+                    {s.status === 'checking' && <Loader size={12} />}
                     {s.status === 'ok' ? 'OK' : s.status === 'error' ? 'Ошибка' : s.status === 'checking' ? 'Проверка…' : 'Ожидание'}
                   </span>
                 </td>

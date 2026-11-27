@@ -305,14 +305,14 @@ export default function Stores({ onOpenStore }: Props) {
               <button className="source-card-open" onClick={() => onOpenStore(s.id)}>
                 <span className="source-card-title" data-tooltip={s.name}>{s.name}</span>
               </button>
+              <div className="source-card-labels">
+                <span className={`source-role ${s.role === 'own' ? 'own' : ''}`}>{s.role === 'own' ? 'Мой магазин' : 'Конкурент'}</span>
+                {s.sourceType === 'telegram' && <span className="source-role">Telegram</span>}
+                <span className={`badge ${s.status}`}>{s.status === 'checking' && <Loader size={12} />}{s.status === 'ok' ? 'Активен' : s.status === 'error' ? 'Ошибка' : s.status === 'checking' ? 'Проверка…' : 'Ожидание'}</span>
+              </div>
               <button className="btn small danger" data-tooltip="Удалить источник" aria-label={`Удалить ${s.name}`} onClick={() => setPendingRemoval({ id: s.id, name: s.name })}><Icon name="close" size={12} /></button>
             </div>
             <div className="source-card-url" data-tooltip={s.url}>{s.url}</div>
-            <div className="source-card-labels">
-              <span className={`source-role ${s.role === 'own' ? 'own' : ''}`}>{s.role === 'own' ? 'Мой магазин' : 'Конкурент'}</span>
-              {s.sourceType === 'telegram' && <span className="source-role">Telegram</span>}
-              <span className={`badge ${s.status}`}>{s.status === 'ok' ? 'Активен' : s.status === 'error' ? 'Ошибка' : s.status === 'checking' ? 'Проверка…' : 'Ожидание'}</span>
-            </div>
             <div className="source-card-metrics">
               <div><span>Позиций</span><b>{s.products.length}</b></div>
               <div><span>Интервал</span><b>Каждые {s.checkIntervalMin} мин</b></div>

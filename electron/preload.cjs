@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('observa', {
   appVersion: () => ipcRenderer.invoke('app:version'),
   updateStatus: () => ipcRenderer.invoke('update:status'),
   updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
   onUpdateEvent: (cb) => {
     const listener = (_, data) => cb(data)
